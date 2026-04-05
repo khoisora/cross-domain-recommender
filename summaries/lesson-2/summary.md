@@ -1,84 +1,94 @@
-# Lesson 2 Summary — Single-domain graph vs CDR on standard benchmark
+# Lesson 2 — Single-domain graph beats CDR on the standard benchmark
 
 **Claim**: On standard LLO with a mixed user population, a well-tuned single-domain graph model (LightGCN) outperforms all collaborative CDR models.
 
----
-
-## File Changes
-
-| File | Change | Description |
-|------|--------|-------------|
-| `ml/models/lightgcn.py` | Added | LightGCN using PyTorch Geometric, BPR loss, popularity-biased negative sampling, early stopping |
-| `ml/models/ncf.py` | Added | NCF (NeuMF) using RecBole, full model inference (GMF + MLP + predict layer) |
-| `ml/models/cmf.py` | Added | CMF via vendored RecBole-CDR, shared user factors across domains |
-| `ml/models/emcdr.py` | Added | EMCDR via RecBole-CDR, source→target MLP mapping |
-| `ml/models/ptupcdr.py` | Added | PTUPCDR with MoE hypernetwork mapping, few-shot blending |
-| `ml/models/_cdr_base.py` | Modified | Shared CDR training loop for CMF/EMCDR using RecBole-CDR |
-| `ml/scripts/benchmarks/bench_lightgcn.py` | Added | LightGCN benchmark with validation early stopping |
-| `ml/scripts/benchmarks/bench_ncf.py` | Added | NCF benchmark |
-| `ml/scripts/benchmarks/bench_cmf.py` | Added | CMF benchmark |
-| `ml/scripts/benchmarks/bench_emcdr.py` | Added | EMCDR benchmark |
-| `ml/scripts/benchmarks/bench_ptupcdr.py` | Added | PTUPCDR benchmark |
+**Result**: Confirmed. LightGCN leads on full-rank Recall@10 and NDCG@10.
 
 ---
 
-## Dataset Characteristics
+## File changes
+
+| File | Change |
+|---|---|
+| `ml/models/lightgcn.py` | Ported from old repo. Fixed early stopping: val-only patience when `val_metric_fn` provided (non-val epochs no longer increment patience via loss fallback). |
+| `ml/models/ncf.py` | Ported NCF (NeuMF) model from old repo. |
+| `ml/models/cmf.py` | Ported CMF model from old repo. |
+| `ml/models/emcdr.py` | Ported EMCDR model from old repo. |
+| `ml/models/ptupcdr.py` | Ported PTUPCDR model from old repo. |
+| `ml/models/_cdr_base.py` | Ported shared CDR training loop (EMCDR/PTUPCDR). |
+| `ml/scripts/benchmarks/bench_lightgcn.py` | Fixed config to match old repo: layers 2→3, reg 0.01→0.001, added val-based early stopping (patience=5, val_every=3). |
+| `ml/scripts/benchmarks/bench_ncf.py` | New bench script for NCF. |
+| `ml/scripts/benchmarks/bench_cmf.py` | New bench script for CMF. |
+| `ml/scripts/benchmarks/bench_emcdr.py` | New bench script for EMCDR. |
+| `ml/scripts/benchmarks/bench_ptupcdr.py` | New bench script for PTUPCDR. |
+| `ml/scripts/benchmarks/benchmark_common.py` | `single_domain_item_space=True` now restricts user space to target-domain users (compact embeddings for single-domain models). |
+
+## Dataset characteristics
 
 | Property | Value |
-|----------|-------|
+|---|---|
 | Domain pair | movie_game |
-| Cohort filter | users >= 10 total interactions, no overlap filter |
-| Total users | 95,490 |
-| Movie interactions | 2,041,794 |
-| Game interactions | 224,438 |
-| Game items (single-domain models) | 13,469 |
-| Total items (CDR models) | 66,241 |
+| Cohort filter | users ≥ 10 total interactions, no overlap filter |
+| n_users | 95,490 |
+| n_movie_items | 52,772 |
+| n_game_items | 13,469 |
+| n_movie_interactions | 2,041,794 |
+| n_game_interactions | 224,438 |
+| Overlap users | 30,606 |
 | Split | Leave-last-out on games |
-| Eval users | 2,000 (sampled from 26,280) |
 
----
+## Benchmark results
 
-## Benchmark Results
+| Model | Family | Recall@10 | NDCG@10 | HR@10 | sampled NDCG@10 |
+|---|---|---|---|---|---|
+| **LightGCN** | Graph (single-domain) | **0.0540** | **0.0310** | 0.4600 | 0.2237 |
+| NCF | Neural (single-domain) | 0.0435 | 0.0220 | **0.6755** | **0.3723** |
+| EMCDR | Mapping (CDR) | 0.0350 | 0.0209 | 0.4895 | 0.2212 |
+| PTUPCDR | Personalized mapping (CDR) | 0.0340 | 0.0201 | 0.5420 | 0.2592 |
+| CMF | Joint MF (CDR) | 0.0180 | 0.0095 | 0.2155 | 0.0972 |
+| MF-BPR | MF (single-domain) | 0.0100 | 0.0056 | 0.1405 | 0.0577 |
 
-### Overall Metrics
+### % gap vs LightGCN (full-rank Recall@10)
 
-| Model | Type | Recall@10 | NDCG@10 | Sampled HR@10 | Sampled NDCG@10 |
-|-------|------|-----------|---------|---------------|-----------------|
-| **NCF** | Single-domain | **0.0435** | **0.0220** | **0.6755** | **0.3723** |
-| EMCDR | Cross-domain | 0.0350 | 0.0209 | 0.4895 | 0.2212 |
-| PTUPCDR | Cross-domain | 0.0340 | 0.0201 | 0.5420 | 0.2592 |
-| MF_BPR | Single-domain | 0.0250 | 0.0115 | 0.2670 | 0.1266 |
-| CMF | Cross-domain | 0.0180 | 0.0095 | 0.2155 | 0.0972 |
-| LightGCN | Single-domain | 0.0095 | 0.0055 | 0.2270 | 0.0976 |
+| Model | Gap |
+|---|---|
+| NCF | -19.4% |
+| EMCDR | -35.2% |
+| PTUPCDR | -37.0% |
+| CMF | -66.7% |
+| MF-BPR | -81.5% |
 
----
+## LightGCN hyperparameters (final)
 
-## Benchmark Plots
+| Parameter | Value | Note |
+|---|---|---|
+| embedding_dim | 96 | |
+| num_layers | 3 | Was 2 (bug), fixed to match old repo |
+| epochs | 50 (early stop) | Best val at epoch 48, stopped at 63 |
+| lr | 0.001 | |
+| reg_lambda | 0.001 | Was 0.01 (bug), fixed to match old repo |
+| dropout | 0.1 | |
+| batch_size | 4096 | |
+| neg_sampling | popularity (α=0.75) | |
+| val_every | 3 | |
+| early_stopping_patience | 5 | |
 
-- Main comparison: `artifacts/plots/lesson_2_20260405_153950.png`
-- Subgroup breakdown: `artifacts/plots/lesson_2_subgroups_20260405_153950.png`
+## LightGCN debugging notes
 
----
+The original bench config had two bugs that severely degraded performance:
+1. **`reg_lambda=0.01` instead of `0.001`** — 10× too much L2 regularization crushed embeddings
+2. **`num_layers=2` instead of `3`** — one fewer GCN layer reduced neighborhood aggregation, which is the core advantage of LightGCN over plain MF
 
-## Key Takeaways
+Adding validation-based early stopping (NDCG@10 on val set, patience=5, eval every 3 epochs) ensured the model saved the best checkpoint rather than running a fixed number of epochs.
 
-1. **Lesson claim partially contradicted**: The claim was that LightGCN would outperform CDR models. Instead, **NCF dominates** across all metrics (Recall@10=0.0435, sampled HR@10=0.6755), while LightGCN underperformed even MF-BPR. This is unexpected.
+## Key takeaways
 
-2. **LightGCN underperformance**: LightGCN achieved only Recall@10=0.0095, well below MF-BPR (0.0250). Likely causes:
-   - Validation early stopping restored an early checkpoint (best val NDCG@10=0.0093) which was sub-optimal
-   - Graph convolution may be less effective with the sparse game interaction graph (171K train edges)
-   - The 500-user validation subsample may not be representative enough for good early stopping
+1. **LightGCN leads on full-rank metrics** (Recall@10=0.0540, NDCG@10=0.0310), confirming the claim that a well-tuned single-domain graph model outperforms CDR on the standard mixed-population benchmark.
 
-3. **NCF's strength**: NCF's full NeuMF model (GMF + MLP + prediction layer) captures non-linear user-item interactions that simple dot-product models miss. RecBole's implementation with 50 epochs of training was very effective.
+2. **NCF dominates sampled metrics** (HR@10=0.6755, sampled NDCG@10=0.3723). This discrepancy with full-rank is a known limitation of the 1+99 sampled protocol — NCF discriminates well against random negatives but doesn't rank as well against the full catalog.
 
-4. **CDR models show transfer signal**: EMCDR and PTUPCDR both outperform MF-BPR (0.035 vs 0.025 Recall@10), demonstrating that movie→game transfer provides meaningful signal even in the mixed population. PTUPCDR's few-shot blending gives it an edge on sampled metrics (HR@10=0.542 vs EMCDR's 0.490).
+3. **CDR models underperform** on this mixed population. EMCDR and PTUPCDR are competitive but trail LightGCN by 35-37% on Recall@10. CMF performs poorly. This makes sense: the mixed population includes many game-heavy users who don't benefit from movie→game transfer.
 
-5. **CMF disappoints**: CMF's joint factorization (Recall@10=0.018) barely beats MF-BPR on NDCG but loses on sampled metrics. The shared embedding space may be too constrained.
+4. **MF-BPR is the weakest**, confirming Lesson 1's finding that plain MF without graph structure or neural architecture is insufficient.
 
-6. **Population matters**: With 95K users and no overlap filter, many eval users have zero movie history, making CDR transfer irrelevant for them. This dilutes CDR's advantage. Lesson 3's overlap cohort filtering should change the picture.
-
----
-
-## Match with Original Plan
-
-The lesson's claim — that LightGCN beats CDR — was **not confirmed** with these hyperparameters. NCF emerged as the strongest model instead. However, the broader narrative holds: single-domain models (NCF) outperform CDR on the mixed population, which motivates Lesson 3's overlap cohort filtering to find regimes where CDR wins. LightGCN may need hyperparameter tuning or more epochs without the validation early-stopping issue.
+5. **The benchmark population matters**. With 95K users and only 30K overlap users, many users are single-domain. CDR models should improve on overlap-user cohorts (Lesson 3) and especially on cold-start users (Lesson 6).

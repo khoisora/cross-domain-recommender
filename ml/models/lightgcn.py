@@ -160,19 +160,24 @@ class LightGCN:
 
             avg_loss = epoch_loss / max(n_batches, 1)
 
-            # Early stopping
-            if use_val and (epoch % val_every == 0 or epoch == 1):
-                model.eval()
-                self._cached_all_emb = None
-                score = val_metric_fn(self)
-                if score > best_score + 1e-6:
-                    best_score = score
-                    patience_counter = 0
-                    best_state = {k: v.clone() for k, v in model.state_dict().items()}
-                else:
-                    patience_counter += 1
-                logger.info("LightGCN epoch %d/%d  loss=%.6f  val=%.4f  best=%.4f  p=%d/%d",
-                           epoch, epochs, avg_loss, score, best_score, patience_counter, early_stopping_patience)
+            # Early stopping — when val_metric_fn is provided, ONLY validation
+            # controls patience and best_state. Loss-based fallback is only used
+            # when no validation function is given.
+            if use_val:
+                if epoch % val_every == 0 or epoch == 1:
+                    model.eval()
+                    self._cached_all_emb = None
+                    score = val_metric_fn(self)
+                    if score > best_score + 1e-6:
+                        best_score = score
+                        patience_counter = 0
+                        best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                    else:
+                        patience_counter += 1
+                    logger.info("LightGCN epoch %d/%d  loss=%.6f  val=%.4f  best=%.4f  p=%d/%d",
+                               epoch, epochs, avg_loss, score, best_score, patience_counter, early_stopping_patience)
+                elif epoch % 5 == 0:
+                    logger.info("LightGCN epoch %d/%d  loss=%.6f  (no val this epoch)", epoch, epochs, avg_loss)
             else:
                 if avg_loss < best_loss - 1e-6:
                     best_loss = avg_loss

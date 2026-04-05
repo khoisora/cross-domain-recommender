@@ -12,6 +12,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
+
 _root = str(Path(__file__).resolve().parent.parent.parent.parent)
 if _root not in sys.path:
     sys.path.insert(0, _root)
@@ -21,6 +23,7 @@ from ml.scripts.benchmarks.benchmark_common import (
     load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
     POSITIVE_THRESHOLD, K,
 )
+from ml.evaluation.metrics import compute_all_metrics, aggregate_metrics
 from ml.models.lightgcn import LightGCN
 
 logger = logging.getLogger(__name__)
@@ -41,23 +44,38 @@ def main() -> None:
     )
     verify_no_leakage(data)
 
-    # Validation metric for early stopping
-    from ml.evaluation.evaluator import evaluate_full_rank
-    def val_fn(model):
-        m = evaluate_full_rank(ALGO, lambda uid: model.predict(uid), data,
-                               eval_user_override=data.eval_user_indices[:500])
-        return m.get("ndcg@10", 0)
+    target_mask = np.zeros(data.num_items, dtype=bool)
+    for idx in data.target_item_indices:
+        target_mask[idx] = True
+    val_users = [uid for uid in data.eval_user_indices if data.game_val_relevant.get(uid)]
+
+    def val_ndcg(model: LightGCN) -> float:
+        per_user = []
+        for uid in val_users[:500]:
+            relevant = data.game_val_relevant.get(uid, set())
+            if not relevant:
+                continue
+            scores = model.predict(uid).copy()
+            scores[~target_mask] = -np.inf
+            for iid in data.target_train_seen.get(uid, set()):
+                if 0 <= iid < data.num_items:
+                    scores[iid] = -np.inf
+            top = np.argsort(scores)[::-1][:K].tolist()
+            per_user.append(compute_all_metrics(top, relevant, k_values=[K]))
+        if not per_user:
+            return 0.0
+        return aggregate_metrics(per_user).get("ndcg@10", 0.0)
 
     model = LightGCN(data.num_users, data.num_items,
                      embedding_dim=96, num_layers=3,
-                     device=data.device, dropout=0.1)
+                     device="cpu", dropout=0.1)
     t0 = time.time()
     model.fit(data.target_train, data.user_to_idx, data.item_to_idx,
-              epochs=40, lr=0.001, reg_lambda=0.001, batch_size=4096,
+              epochs=50, lr=0.001, reg_lambda=0.001, batch_size=4096,
               positive_threshold=POSITIVE_THRESHOLD,
               neg_sampling="popularity", neg_popularity_alpha=0.75,
-              neg_item_indices=sorted(data.target_item_indices),
-              early_stopping_patience=5, val_metric_fn=val_fn, val_every=3)
+              neg_item_indices=np.array(sorted(data.target_item_indices), dtype=np.int64),
+              early_stopping_patience=5, val_metric_fn=val_ndcg, val_every=3)
     train_time = time.time() - t0
 
     metrics = evaluate_cross_domain(ALGO, lambda uid: model.predict(uid), data)
@@ -65,7 +83,7 @@ def main() -> None:
     save_result(
         algo=ALGO, metrics=metrics, dataset_info=data.dataset_info,
         lesson=args.lesson, train_time=train_time,
-        description="PyG LightGCN, emb=96, layers=3, epochs=40, lr=0.001, reg=0.001, dropout=0.1",
+        description="PyG LightGCN, emb=96, layers=3, epochs=50, lr=0.001, reg=0.001, dropout=0.1, val-early-stop patience=5",
     )
 
 
