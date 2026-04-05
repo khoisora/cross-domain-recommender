@@ -1,4 +1,13 @@
-"""Cross-domain evaluation: full-rank and sampled-negative protocols."""
+"""Cross-domain evaluation: full-rank and sampled-negative protocols.
+
+Two complementary evaluation protocols:
+  1. Full-rank: score ALL items, mask non-target and train-seen items, rank top-K.
+     Measures true ranking ability but is sensitive to item catalog size.
+  2. Sampled (1+99): score 1 positive + 99 random negatives, check if positive is in top-K.
+     More comparable across different catalog sizes, standard in RecSys papers.
+
+Both protocols report per-subgroup breakdowns for fine-grained analysis.
+"""
 
 from __future__ import annotations
 
@@ -22,11 +31,20 @@ def evaluate_full_rank(
 ) -> dict:
     """Full-rank evaluation on held-out target-domain test set.
 
+    For each eval user:
+      1. Get model scores for ALL items
+      2. Mask out non-target-domain items (e.g., movies when evaluating games)
+      3. Mask out items the user already interacted with in training
+      4. Take top-K items from remaining scores
+      5. Compute Recall@K and NDCG@K against ground-truth relevant items
+
     Args:
         predict_fn: (user_idx) -> np.ndarray of scores for all items.
         data: CrossDomainSplit instance.
     """
     num_items = data.num_items
+    # Boolean mask: True for target-domain items only.
+    # Non-target items get -inf scores so they never appear in top-K.
     target_mask = np.zeros(num_items, dtype=bool)
     for idx in data.target_item_indices:
         target_mask[idx] = True
@@ -44,8 +62,9 @@ def evaluate_full_rank(
         except Exception:
             continue
 
-        # Mask non-target items and train-seen items
+        # Mask non-target items → ensures we only rank within the target domain
         scores[~target_mask] = -np.inf
+        # Mask train-seen items → prevents trivial hits from re-ranking known items
         for iid in data.target_train_seen.get(uid, set()):
             if 0 <= iid < num_items:
                 scores[iid] = -np.inf
@@ -83,7 +102,15 @@ def evaluate_sampled(
 ) -> dict:
     """Sampled-negative evaluation: 1 positive + n_negatives random target items.
 
-    Reports HR@10 and NDCG@10 within the candidate set.
+    For each eval user:
+      1. Take one ground-truth positive test item
+      2. Sample n_negatives random target items (excluding train-seen and test item)
+      3. Score all candidates, compute rank of the positive item
+      4. HR@K = 1 if positive ranked in top-K, else 0
+      5. NDCG@K = 1/log2(rank+1) if ranked in top-K, else 0
+
+    This protocol is widely used in RecSys papers (e.g., NCF, LightGCN) and is
+    more comparable across datasets with different catalog sizes.
     """
     rng = np.random.RandomState(seed)
     target_items_arr = np.array(sorted(data.target_item_indices), dtype=np.int64)
@@ -95,6 +122,7 @@ def evaluate_sampled(
         relevant = data.target_test_relevant.get(uid, set())
         if not relevant:
             continue
+        # Use one test item as the positive (standard sampled protocol)
         test_item = next(iter(relevant))
 
         # Negative pool: target items minus train-seen minus test item
@@ -104,6 +132,7 @@ def evaluate_sampled(
             continue
 
         neg_items = rng.choice(pool, size=n_negatives, replace=False)
+        # candidates[0] is always the positive item
         candidates = np.concatenate([[test_item], neg_items])
 
         try:
@@ -111,13 +140,14 @@ def evaluate_sampled(
         except Exception:
             continue
 
+        # Rank = number of candidates scoring higher than the positive + 1
         cand_scores = scores[candidates]
         rank = int((cand_scores > cand_scores[0]).sum()) + 1
 
         m = {}
         for k in [10]:
             m[f"hr@{k}"] = float(rank <= k)
-            m[f"ndcg@{k}"] = (1.0 / np.log2(rank + 1)) if rank <= k else 0.0
+            m[f"ndcg@{k}"] = (1.0 / np.log2(rank + 2)) if rank <= k else 0.0
         per_user_metrics.append(m)
         per_user_uid.append(uid)
 
@@ -149,7 +179,12 @@ def _aggregate_subgroups(
     per_user_metrics: list[dict],
     prefix: str = "",
 ) -> dict[str, dict[str, float]]:
-    """Aggregate metrics per subgroup. Silently skips empty subgroups."""
+    """Aggregate metrics per subgroup. Silently skips empty subgroups.
+
+    Maps each subgroup's user indices back to their per-user metrics,
+    then averages. This enables comparing model performance across
+    user segments (e.g., cold-start vs warm, movie-heavy vs game-heavy).
+    """
     uid_to_pos = {uid: i for i, uid in enumerate(per_user_uid)}
     results = {}
     for sg_name, sg_uids in user_subgroups.items():

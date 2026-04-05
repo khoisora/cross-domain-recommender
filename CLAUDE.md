@@ -8,6 +8,8 @@ Cross-domain recommender system experiments (movies → games) using the Amazon 
 
 **Reference implementation**: `~/work/MoviesGamesRecommender` — always read it before writing any model, loader, or eval logic. Port and adapt; do not rewrite from scratch.
 
+**"Put in the plan"**: When the user says "put in the plan" or "add to the plan", update `LESSON_PLAN.md` — not memory or any other file.
+
 ## Setup
 
 ```bash
