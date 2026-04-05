@@ -342,11 +342,29 @@ Register filtered variant as `movie_game_sparse_loose_filtered`. Reference `proc
 
 ## Implementation rules for Claude Code
 
+### Git branching
+
+- **Create a new branch for each lesson/phase**: `phase-0`, `lesson-1`, `lesson-2`, etc.
+- **When a lesson/phase is complete** (bench scripts run, plots saved), merge the branch to `main` and create the next lesson branch from `main`.
+- **Use the current branch name to know which lesson you are working on.** Do not skip ahead.
+
+### Conversation workflow
+
+- **One lesson per conversation.** Each new conversation should check which lesson/phase is current (via branch name or last merged branch) and implement only that one. Do not execute all lessons in a single conversation.
+- **Before starting a new lesson**, verify the previous lesson is fully merged to `main` with passing bench scripts and saved plots.
+- **Each lesson must end with**: (1) bench scripts run successfully, (2) result JSONs saved, (3) plot PNGs generated, (4) branch merged to `main`.
+
 ### Core workflow
 
-- **Always read the old repo first** (`~/work/MoviesGamesRecommender`) before writing any model, loader, or eval logic. Port and adapt — don't rewrite from scratch.
+- **Always read the old repo first** (`~/work/MoviesGamesRecommender`) before writing any model, loader, or eval logic. Port and adapt — don't rewrite from scratch. Fix bugs in old repo code if encountered during porting.
 - **One file per model, one file per bench script.** Mirror the old repo's naming (`bench_<model>.py`, `ml/models/<model>.py`).
 - **Do not start Lesson N+1 until Lesson N's bench scripts run end-to-end and the plot PNG is saved.**
+- **RecBole-CDR** is vendored at `ml/models/recbole_cdr/` from the start. Do not pip install it; assume it's always available.
+
+### Hardware
+
+- **Use GPU (CUDA/MPS) when available**, fall back to CPU. PyTorch models should auto-detect device. Use whichever is faster.
+- **Hyperparameters**: start with the old repo's hyperparameters. If a model trains slowly (>10 min for a single run), tune down epochs/embedding size to keep iteration fast. Document any changes.
 
 ### Code quality & libraries
 
