@@ -1,16 +1,13 @@
-"""Shared setup/teardown for recbole-cdr cross-domain model wrappers.
+"""Shared setup for recbole-cdr cross-domain model wrappers (CMF, EMCDR, PTUPCDR).
 
-All three CDR models (DeepAPF, BiTGCF, CMF) share the same training pipeline:
-  1. Write source/target .inter files
-  2. Build CDRConfig
-  3. Create dataset + dataloaders
-  4. Train with CrossDomainTrainer (validation skipped — bench scripts evaluate externally)
-  5. Build our_idx → recbole-ID maps for users/items
-
-Source domain = movies, target domain = games (matches benchmark protocol: rank games).
+Pipeline:
+  1. Write source/target .inter files from ratings DataFrame
+  2. Build CDRConfig with domain-specific subconfigs
+  3. Train with CrossDomainTrainer (validation skipped — bench scripts evaluate externally)
+  4. Build our_idx → recbole unified ID maps for user/item embedding extraction
 
 RecBole assigns overlap / source-only / target-only IDs separately; raw IDs that appear
-only in the source .inter file are absent from ``target_*_remap_dict`` and vice versa.
+only in the source .inter file are absent from target_*_remap_dict and vice versa.
 Lookups must chain both dicts so every user/item maps to the unified embedding index.
 """
 
@@ -68,8 +65,8 @@ def fit_cdr(
     tgt = ratings[ratings["domain"] == target_domain][["user_id", "item_id", "rating"]].copy()
     for d in (src, tgt):
         d.dropna(subset=["user_id", "item_id"], inplace=True)
-        d["user_id"] = d["user_id"].map(lambda x: normalize_id(x))
-        d["item_id"] = d["item_id"].map(lambda x: normalize_id(x))
+        d["user_id"] = d["user_id"].map(normalize_id)
+        d["item_id"] = d["item_id"].map(normalize_id)
 
     tmpdir = tempfile.mkdtemp(prefix=f"{model_name.lower()}_")
     try:
@@ -95,18 +92,12 @@ def fit_cdr(
             "train_batch_size": batch_size, "eval_batch_size": batch_size,
             "overlap_batch_size": batch_size,
             "learning_rate": lr, "weight_decay": weight_decay,
-            # Legacy key used by recbole_cdr logging/utilities
             "neg_sampling": [{"popularity": 1}],
-            # recbole 1.2+ uses train_neg_sample_args (old neg_sampling key is ignored)
             "train_neg_sample_args": {
-                # Popularity-biased negatives improve top-K by training against
-                # more competitive items than uniform random sampling.
                 "distribution": "popularity", "sample_num": 1,
-                # RecBole expects numeric alpha for popularity; 0.75 is a common choice.
                 "alpha": 0.75, "dynamic": False, "candidate_num": 0,
             },
             "user_link_file_path": None, "item_link_file_path": None,
-            # Minimal eval config (only used if validation is enabled)
             "eval_args": {"split": {"RS": [0.99, 0.005, 0.005]},
                           "split_valid": {"RS": [0.99, 0.01]},
                           "order": "RO", "group_by": "user",
@@ -124,22 +115,15 @@ def fit_cdr(
         dataset = create_dataset(config)
         train_data, _, _ = data_preparation(config, dataset)
 
-        from recbole_cdr.model.cross_domain_recommender import DeepAPF, BiTGCF, CMF, EMCDR
-        model = {"DeepAPF": DeepAPF, "BiTGCF": BiTGCF, "CMF": CMF, "EMCDR": EMCDR}[model_name](config, dataset)
+        from recbole_cdr.model.cross_domain_recommender import CMF, EMCDR
+        model_cls = {"CMF": CMF, "EMCDR": EMCDR}[model_name]
+        model = model_cls(config, dataset)
 
-        # Pass valid_data=None to skip per-epoch validation (bench scripts evaluate externally)
-        # verbose=True gives per-epoch loss logs from RecBole
         CrossDomainTrainer(config, model).fit(train_data, None, verbose=True, saved=False)
 
-        # Build our_idx → recbole unified ID maps (must merge source + target remaps)
-        u_remap = ChainMap(
-            dataset.source_user_ID_remap_dict,
-            dataset.target_user_ID_remap_dict,
-        )
-        i_remap = ChainMap(
-            dataset.source_item_ID_remap_dict,
-            dataset.target_item_ID_remap_dict,
-        )
+        # Build our_idx → recbole unified ID maps
+        u_remap = ChainMap(dataset.source_user_ID_remap_dict, dataset.target_user_ID_remap_dict)
+        i_remap = ChainMap(dataset.source_item_ID_remap_dict, dataset.target_item_ID_remap_dict)
         rb_users = np.zeros(len(user_to_idx), dtype=np.int64)
         rb_items = np.zeros(len(item_to_idx), dtype=np.int64)
         for raw_uid, our_idx in user_to_idx.items():
