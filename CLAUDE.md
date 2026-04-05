@@ -50,24 +50,25 @@ Raw data lives in `ml/data/amazon_2023/raw/` (JSONL gzip). Process it to parquet
 PYTHONPATH=. python ml/data/process_data.py
 ```
 
-Processed parquet files land in `ml/data/amazon_2023/processed/`. Domain pair variants (loose, strict cohorts) land in sibling dirs (`processed_transfer_loose/`, etc.).
+Processed parquet files land in `ml/data/amazon_2023/processed/`. Currently only `movie_game` is registered. Cohort variants (loose, strict) will be added in later lessons.
 
 ## Architecture
 
 ```
 ml/
   data/
-    process_data.py       # raw JSONL → parquet; cohort filtering logic
-    data_splitter.py      # leave-last-out split, CrossDomainSplit dataclass
-    dataset.py            # dataset loading helpers
-    item_dedup.py         # item deduplication
+    process_data.py       # raw JSONL → parquet (movie_game, k-core >= 10)
+    data_splitter.py      # leave-last-out split utility
+    dataset.py            # BPRDataset for PyTorch training
+    item_dedup.py         # item deduplication (DVD/Blu-ray/platform variants)
   models/
     base_recommender.py   # BaseRecommender, BasePyTorchRecommender, BaseLibraryRecommender
+    id_utils.py           # normalize_id(), normalize_maps()
     _cdr_base.py          # shared CDR training loop (used by EMCDR, PTUPCDR)
-    recbole_cdr/          # vendored RecBole-CDR source (DeepAPF, Bi-TGCF, etc.)
+    recbole_cdr/          # vendored RecBole-CDR source
   evaluation/
-    metrics.py            # recall_at_k, ndcg_at_k, hit_rate_at_k
-    evaluator.py          # evaluate_cross_domain(), full-rank + sampled@99 modes
+    metrics.py            # recall_at_k, ndcg_at_k, hit_rate_at_k (@10 only)
+    evaluator.py          # evaluate_full_rank(), evaluate_sampled() (@99 neg)
   scripts/
     benchmarks/
       benchmark_common.py # _DOMAIN_PAIR_PATHS, load_cross_domain_split(),

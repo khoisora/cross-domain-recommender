@@ -1,283 +1,181 @@
 #!/usr/bin/env python3
-"""
-Plot results from JSON benchmark files.
-Creates comprehensive comparison plots for model performance.
+"""Plot benchmark results from JSON files.
+
+Usage:
+    python plot_results.py --domain-pair movie_game --lesson 1
+
+Reads artifacts/<domain-pair>/results/*_lesson<N>.json and creates
+comparison bar charts with dataset_info annotation.
 """
 
+import argparse
 import json
-import os
 import sys
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any
+
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 
-# Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-sys.path.append(str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-# Model categories
-SINGLE_DOMAIN_MODELS = ["MF", "MF Explicit", "MF BPR", "NCF", "LightGCN", "DeepFM"]
-CROSS_DOMAIN_MODELS = ["CMF", "DeepAPF", "Bi-TGCF", "EMCDR"]
 
-def load_json_results(file_path: Path) -> Dict[str, Any]:
-    """Load results from JSON file."""
-    try:
-        with open(file_path, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"❌ Error loading {file_path}: {e}")
-        return {}
+def load_lesson_results(results_dir: Path, lesson: int) -> list[dict]:
+    """Load all result JSONs for a given lesson."""
+    pattern = f"*_lesson{lesson}.json"
+    results = []
+    for path in sorted(results_dir.glob(pattern)):
+        try:
+            data = json.loads(path.read_text())
+            results.append(data)
+        except Exception as e:
+            print(f"Warning: failed to load {path}: {e}")
+    return results
 
-def flatten_results(results: Dict[str, Any], file_name: str) -> List[Dict[str, Any]]:
-    """Flatten nested results into a list of model results."""
-    flat_data = []
-    
-    if file_name == "final_benchmark_results.json":
-        # Handle nested structure
-        for category, models in results.items():
-            if category in ["single_domain", "cross_domain"]:
-                for model_name, metrics in models.items():
-                    if isinstance(metrics, dict) and "recall@10" in metrics:
-                        flat_data.append({
-                            "Model": model_name,
-                            "Recall@10": metrics["recall@10"],
-                            "NDCG@10": metrics.get("ndcg@10", 0),
-                            "HitRate@10": metrics.get("hit_rate@10", 0),
-                            "Type": category.replace("_", "-").title(),
-                            "Time (s)": metrics.get("train_time_s", 0),
-                            "Source": file_name
-                        })
-    else:
-        # Handle flat structure - could be individual model files or collection
-        if "recall@10" in results:
-            # This is an individual model file - extract model name from filename
-            model_name = file_name.replace(".json", "").replace("_", " ")
-            model_type = "Cross-Domain" if any(name in model_name for name in CROSS_DOMAIN_MODELS) else "Single-Domain"
-            flat_data.append({
-                "Model": model_name,
-                "Recall@10": results["recall@10"],
-                "NDCG@10": results.get("ndcg@10", 0),
-                "HitRate@10": results.get("hit_rate@10", 0),
-                "Type": model_type,
-                "Time (s)": results.get("train_time_s", 0),
-                "Source": file_name
-            })
-        else:
-            # Handle collection of models
-            for model_name, metrics in results.items():
-                if isinstance(metrics, dict) and "recall@10" in metrics:
-                    model_type = "Cross-Domain" if model_name in CROSS_DOMAIN_MODELS else "Single-Domain"
-                    flat_data.append({
-                        "Model": model_name,
-                        "Recall@10": metrics["recall@10"],
-                        "NDCG@10": metrics.get("ndcg@10", 0),
-                        "HitRate@10": metrics.get("hit_rate@10", 0),
-                        "Type": model_type,
-                        "Time (s)": metrics.get("train_time_s", 0),
-                        "Source": file_name
-                    })
-    
-    return flat_data
 
-def create_comparison_plots(all_results: List[Dict[str, Any]], output_dir: Path):
-    """Create comprehensive comparison plots."""
-    if not all_results:
-        print("❌ No valid results to plot!")
+def create_bar_chart(results: list[dict], output_path: Path, lesson: int):
+    """Create side-by-side bar chart for Recall@10 and NDCG@10 (full-rank + sampled).
+
+    Includes dataset_info annotation box.
+    """
+    if not results:
+        print("No results to plot.")
         return
-    
-    df = pd.DataFrame(all_results)
-    
-    # Create subplots
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle('Model Performance Comparison', fontsize=16, fontweight='bold')
-    
-    # Color scheme
-    colors = {
-        'Single-Domain': '#4ECDC4',
-        'Cross-Domain': '#FF6B6B',
-        'Single-Domain': '#4ECDC4',
-        'Cross-Domain': '#FF6B6B'
-    }
-    
-    # Plot 1: Recall@10 Comparison (Horizontal Bar)
-    ax1 = axes[0, 0]
-    df_sorted = df.sort_values('Recall@10', ascending=True)
-    bar_colors = [colors.get(t, '#95A5A6') for t in df_sorted['Type']]
-    bars = ax1.barh(df_sorted['Model'], df_sorted['Recall@10'], color=bar_colors, alpha=0.8)
-    ax1.set_title('Recall@10 Comparison', fontsize=14, fontweight='bold')
-    ax1.set_xlabel('Recall@10')
-    ax1.grid(True, alpha=0.3)
-    
-    # Add value labels
-    for bar, value in zip(bars, df_sorted['Recall@10']):
-        width = bar.get_width()
-        ax1.text(width + 0.001, bar.get_y() + bar.get_height()/2,
-                f'{value:.4f}', ha='left', va='center', fontsize=9)
-    
-    # Plot 2: NDCG@10 Comparison
-    ax2 = axes[0, 1]
-    df_sorted_ndcg = df.sort_values('NDCG@10', ascending=True)
-    bar_colors_ndcg = [colors.get(t, '#95A5A6') for t in df_sorted_ndcg['Type']]
-    bars_ndcg = ax2.barh(df_sorted_ndcg['Model'], df_sorted_ndcg['NDCG@10'], color=bar_colors_ndcg, alpha=0.8)
-    ax2.set_title('NDCG@10 Comparison', fontsize=14, fontweight='bold')
-    ax2.set_xlabel('NDCG@10')
-    ax2.grid(True, alpha=0.3)
-    
-    # Add value labels
-    for bar, value in zip(bars_ndcg, df_sorted_ndcg['NDCG@10']):
-        width = bar.get_width()
-        ax2.text(width + 0.0005, bar.get_y() + bar.get_height()/2,
-                f'{value:.4f}', ha='left', va='center', fontsize=9)
-    
-    # Plot 3: Single vs Cross Domain Grouped Bar
-    ax3 = axes[0, 2]
-    single_df = df[df['Type'].isin(['Single-Domain', 'Single-domain'])].copy()
-    cross_df = df[df['Type'].isin(['Cross-Domain', 'Cross-domain'])].copy()
-    
-    if not single_df.empty and not cross_df.empty:
-        x_single = np.arange(len(single_df))
-        x_cross = np.arange(len(cross_df)) + 0.4
-        width = 0.35
-        
-        ax3.bar(x_single, single_df['Recall@10'], width, 
-                label='Single-Domain', alpha=0.8, color='#4ECDC4')
-        ax3.bar(x_cross, cross_df['Recall@10'], width,
-                label='Cross-Domain', alpha=0.8, color='#FF6B6B')
-        
-        ax3.set_xlabel('Models')
-        ax3.set_ylabel('Recall@10')
-        ax3.set_title('Single vs Cross-Domain')
-        ax3.set_xticks(np.concatenate([x_single, x_cross]))
-        ax3.set_xticklabels(list(single_df['Model']) + list(cross_df['Model']), rotation=45, ha='right')
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
-    
-    # Plot 4: Performance vs Efficiency
-    ax4 = axes[1, 0]
-    scatter_colors = [colors.get(t, '#95A5A6') for t in df['Type']]
-    scatter = ax4.scatter(df['Time (s)'], df['Recall@10'], 
-                         s=100, alpha=0.7, c=scatter_colors)
-    
-    # Add model labels
-    for i, row in df.iterrows():
-        ax4.annotate(row['Model'], 
-                    (row['Time (s)'], row['Recall@10']),
-                    xytext=(5, 5), textcoords='offset points', fontsize=8)
-    
-    ax4.set_xlabel('Training Time (seconds)')
-    ax4.set_ylabel('Recall@10')
-    ax4.set_title('Performance vs Efficiency')
-    ax4.grid(True, alpha=0.3)
-    
-    # Plot 5: Performance Summary Table
-    ax5 = axes[1, 1]
-    ax5.axis('tight')
-    ax5.axis('off')
-    
-    # Sort by Recall@10 for table
-    df_table = df.sort_values('Recall@10', ascending=False)
-    table_data = []
-    for _, row in df_table.iterrows():
-        table_data.append([
-            row['Model'],
-            f"{row['Recall@10']:.4f}",
-            f"{row['NDCG@10']:.4f}",
-            f"{row['Time (s)']:.1f}s",
-            row['Type']
-        ])
-    
-    table = ax5.table(cellText=table_data, 
-                     colLabels=['Model', 'Recall@10', 'NDCG@10', 'Time', 'Type'],
-                     cellLoc='center', loc='center')
-    table.auto_set_font_size(False)
-    table.set_fontsize(8)
-    table.scale(1, 1.8)
-    
-    # Color code by type
-    for i in range(len(table_data)):
-        if table_data[i][-1] in ['Cross-Domain', 'Cross-domain']:
-            for j in range(4):
-                table[(i+1, j)].set_facecolor('#FF6B6B33')
-        else:
-            for j in range(4):
-                table[(i+1, j)].set_facecolor('#4ECDC433')
-    
-    ax5.set_title('Performance Summary', fontsize=14, fontweight='bold', pad=20)
-    
-    # Plot 6: Source Distribution
-    ax6 = axes[1, 2]
-    source_counts = df['Source'].value_counts()
-    ax6.pie(source_counts.values, labels=source_counts.index, autopct='%1.1f%%', 
-            colors=['#FF6B6B', '#4ECDC4', '#95A5A6', '#F39C12'])
-    ax6.set_title('Results by Source File')
-    
-    plt.tight_layout()
-    
-    # Save plot
-    plot_file = output_dir / "model_comparison_comprehensive.png"
-    plt.savefig(plot_file, dpi=300, bbox_inches='tight')
+
+    models = [r.get("model", "unknown") for r in results]
+    n = len(models)
+    x = np.arange(n)
+    width = 0.35
+
+    fig, axes = plt.subplots(1, 2, figsize=(max(10, 3 * n), 5))
+
+    # --- Full-rank metrics ---
+    ax1 = axes[0]
+    recall = [r.get("recall@10", 0) for r in results]
+    ndcg = [r.get("ndcg@10", 0) for r in results]
+    ax1.bar(x - width / 2, recall, width, label="Recall@10", color="#4ECDC4", alpha=0.85)
+    ax1.bar(x + width / 2, ndcg, width, label="NDCG@10", color="#FF6B6B", alpha=0.85)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(models, rotation=30, ha="right")
+    ax1.set_title("Full-Rank Evaluation @10")
+    ax1.legend()
+    ax1.grid(axis="y", alpha=0.3)
+    # Value labels
+    for i, (r, n_) in enumerate(zip(recall, ndcg)):
+        ax1.text(i - width / 2, r + 0.001, f"{r:.4f}", ha="center", va="bottom", fontsize=7)
+        ax1.text(i + width / 2, n_ + 0.001, f"{n_:.4f}", ha="center", va="bottom", fontsize=7)
+
+    # --- Sampled metrics ---
+    ax2 = axes[1]
+    hr10 = [r.get("sampled_hr@10", 0) for r in results]
+    sndcg = [r.get("sampled_ndcg@10", 0) for r in results]
+    ax2.bar(x - width / 2, hr10, width, label="Sampled HR@10", color="#4ECDC4", alpha=0.85)
+    ax2.bar(x + width / 2, sndcg, width, label="Sampled NDCG@10", color="#FF6B6B", alpha=0.85)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(models, rotation=30, ha="right")
+    ax2.set_title("Sampled (1+99) Evaluation @10")
+    ax2.legend()
+    ax2.grid(axis="y", alpha=0.3)
+    for i, (h, s) in enumerate(zip(hr10, sndcg)):
+        ax2.text(i - width / 2, h + 0.002, f"{h:.4f}", ha="center", va="bottom", fontsize=7)
+        ax2.text(i + width / 2, s + 0.002, f"{s:.4f}", ha="center", va="bottom", fontsize=7)
+
+    # --- Dataset info annotation ---
+    ds = results[0].get("dataset_info", {})
+    info_text = (
+        f"Domain: {ds.get('domain_pair', '?')}\n"
+        f"Cohort: {ds.get('cohort_filter', '?')}\n"
+        f"Users: {ds.get('n_users', '?'):,}  |  "
+        f"Movies: {ds.get('n_movie_interactions', '?'):,}  |  "
+        f"Games: {ds.get('n_game_interactions', '?'):,}\n"
+        f"Split: {ds.get('split', '?')}"
+    )
+    fig.text(
+        0.5, -0.02, info_text,
+        ha="center", va="top", fontsize=8,
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", alpha=0.8),
+        family="monospace",
+    )
+
+    fig.suptitle(f"Lesson {lesson} — Model Comparison", fontsize=14, fontweight="bold")
+    plt.tight_layout(rect=[0, 0.08, 1, 0.95])
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
-    
-    print(f"✅ Comprehensive plot saved to {plot_file}")
-    
-    # Save combined results
-    results_file = output_dir / "combined_results.json"
-    with open(results_file, 'w') as f:
-        json.dump(all_results, f, indent=2)
-    
-    print(f"✅ Combined results saved to {results_file}")
+    print(f"Saved plot to {output_path}")
+
+
+def create_subgroup_chart(results: list[dict], output_path: Path, lesson: int):
+    """Create subgroup bar chart if subgroup data is present."""
+    # Collect subgroup names across all results
+    all_subgroups = set()
+    for r in results:
+        sg = r.get("subgroups", {})
+        all_subgroups.update(k for k, v in sg.items() if v)
+
+    if not all_subgroups:
+        return
+
+    # Filter out subgroups with < 10 users
+    subgroups = sorted(all_subgroups)
+    models = [r.get("model", "unknown") for r in results]
+
+    fig, ax = plt.subplots(figsize=(max(12, 2 * len(subgroups)), 6))
+    x = np.arange(len(subgroups))
+    width = 0.8 / len(models)
+    colors = plt.cm.Set2(np.linspace(0, 1, len(models)))
+
+    for i, r in enumerate(results):
+        sg_data = r.get("subgroups", {})
+        vals = [sg_data.get(sg, {}).get("recall@10", 0) for sg in subgroups]
+        ax.bar(x + i * width - 0.4 + width / 2, vals, width, label=models[i], color=colors[i], alpha=0.85)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(subgroups, rotation=45, ha="right", fontsize=8)
+    ax.set_ylabel("Recall@10")
+    ax.set_title(f"Lesson {lesson} — Subgroup Recall@10")
+    ax.legend(fontsize=8)
+    ax.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved subgroup plot to {output_path}")
+
 
 def main():
-    """Main function to plot results from JSON files."""
-    results_dir = PROJECT_ROOT / "artifacts" / "results"
-    output_dir = PROJECT_ROOT / "artifacts" / "plots"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    print(f"📊 Looking for result files in {results_dir}")
-    
-    # Find all JSON result files
-    json_files = list(results_dir.glob("*.json"))
-    # Process all JSON files, not just ones with specific keywords
-    result_files = json_files
-    
-    if not result_files:
-        print("❌ No benchmark result files found!")
-        print(f"   Available files: {[f.name for f in json_files]}")
-        return
-    
-    print(f"📁 Found {len(result_files)} result files:")
-    for f in result_files:
-        print(f"   - {f.name}")
-    
-    # Load and combine all results
-    all_results = []
-    for file_path in result_files:
-        print(f"\n📖 Loading {file_path.name}...")
-        results = load_json_results(file_path)
-        if results:
-            flat_results = flatten_results(results, file_path.name)
-            all_results.extend(flat_results)
-            print(f"   ✅ Loaded {len(flat_results)} model results")
-    
-    if not all_results:
-        print("❌ No valid results found in any file!")
-        return
-    
-    print(f"\n📊 Total results: {len(all_results)} model entries")
-    
-    # Create plots
-    create_comparison_plots(all_results, output_dir)
-    
-    # Print summary
-    df = pd.DataFrame(all_results)
-    print("\n📈 Performance Summary:")
-    print("=" * 60)
-    for _, row in df.sort_values('Recall@10', ascending=False).iterrows():
-        print(f"{row['Model']:<15} | Recall@10: {row['Recall@10']:.4f} | "
-              f"NDCG@10: {row['NDCG@10']:.4f} | Time: {row['Time (s)']:.1f}s | "
-              f"Type: {row['Type']}")
+    parser = argparse.ArgumentParser(description="Plot benchmark results.")
+    parser.add_argument("--domain-pair", default="movie_game")
+    parser.add_argument("--lesson", type=int, required=True)
+    args = parser.parse_args()
+
+    # Resolve paths
+    from ml.scripts.benchmarks.benchmark_common import _DOMAIN_PAIR_PATHS
+    if args.domain_pair not in _DOMAIN_PAIR_PATHS:
+        print(f"Unknown domain pair: {args.domain_pair}")
+        sys.exit(1)
+
+    _, artifacts_dir = _DOMAIN_PAIR_PATHS[args.domain_pair]
+    results_dir = artifacts_dir / "results"
+    plots_dir = artifacts_dir / "plots"
+
+    results = load_lesson_results(results_dir, args.lesson)
+    if not results:
+        print(f"No results found for lesson {args.lesson} in {results_dir}")
+        sys.exit(1)
+
+    print(f"Found {len(results)} model results for lesson {args.lesson}")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    chart_path = plots_dir / f"lesson_{args.lesson}_{timestamp}.png"
+    create_bar_chart(results, chart_path, args.lesson)
+
+    # Subgroup chart if applicable
+    subgroup_path = plots_dir / f"lesson_{args.lesson}_subgroups_{timestamp}.png"
+    create_subgroup_chart(results, subgroup_path, args.lesson)
+
 
 if __name__ == "__main__":
     main()
