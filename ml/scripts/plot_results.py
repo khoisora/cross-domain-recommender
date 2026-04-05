@@ -37,7 +37,10 @@ def load_lesson_results(results_dir: Path, lesson: int) -> list[dict]:
 def create_bar_chart(results: list[dict], output_path: Path, lesson: int):
     """Create side-by-side bar chart for Recall@10 and NDCG@10 (full-rank + sampled).
 
-    Includes dataset_info annotation box.
+    Layout: two panels side by side.
+      Left panel: full-rank Recall@10 and NDCG@10 (all items scored).
+      Right panel: sampled HR@10 and NDCG@10 (1 pos + 99 neg protocol).
+    Bottom annotation box shows dataset context from dataset_info.
     """
     if not results:
         print("No results to plot.")

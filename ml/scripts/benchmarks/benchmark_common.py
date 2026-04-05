@@ -1,5 +1,12 @@
 """Common utilities for the cross-domain benchmark suite.
 
+Central module that all bench_*.py scripts import. Provides:
+  - Data loading: ratings.parquet → leave-last-out splits → CrossDomainSplit
+  - ID mapping: raw string IDs → contiguous integer indices for embeddings
+  - Subgroup assignment: categorize users by cross-domain activity patterns
+  - Evaluation entry point: delegates to evaluator.py for full-rank + sampled metrics
+  - Result saving: JSON with dataset_info for reproducibility and plot annotation
+
 Protocol: movie → game cross-domain recommendation.
 Split: per-user leave-last-out on target-domain (game) interactions.
 Metrics: Recall@10, NDCG@10 (full-rank) + sampled HR@10, NDCG@10 (1 pos + 99 neg).
@@ -37,8 +44,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 SEED = 42
+# Rating >= 4 counts as a positive interaction for evaluation.
+# This is stricter than the old repo's 3.5 to reduce false positives.
 POSITIVE_THRESHOLD = 4
-K = 10  # all metrics @10 only
+K = 10  # all metrics @10 only — no @5, @20, @50
 
 # ---------------------------------------------------------------------------
 # Domain pair paths — Phase 0: only movie_game
@@ -103,9 +112,14 @@ def add_common_args(parser) -> None:
 
 @dataclass
 class CrossDomainSplit:
-    """All data needed by every benchmark script."""
+    """All data needed by every benchmark script.
 
-    # Per-user leave-last-out splits
+    This is the single data container passed to models and evaluators.
+    It holds train/val/test splits for both domains, ID mappings,
+    pre-built eval structures, and user subgroup assignments.
+    """
+
+    # Per-user leave-last-out splits (each domain split independently)
     game_train: pd.DataFrame
     game_val: pd.DataFrame
     game_test: pd.DataFrame
@@ -113,23 +127,29 @@ class CrossDomainSplit:
     movie_val: pd.DataFrame
     movie_test: pd.DataFrame
 
-    # Full domain data (for CDR models that need all source interactions)
+    # Full domain data — CDR models need ALL source interactions (not just train)
+    # because source-domain data is auxiliary, not being evaluated
     movie_all: pd.DataFrame
     game_all: pd.DataFrame
 
-    # Combined training set: game_train + all movie interactions
+    # Combined training set: target_train + all source interactions.
+    # Used by CDR models that train on both domains jointly.
     cross_train: pd.DataFrame
 
-    # ID mappings
+    # ID mappings: raw string IDs → contiguous ints for embedding layers.
+    # All models use these same maps for consistent user/item indexing.
     user_to_idx: dict[str, int]
     item_to_idx: dict[str, int]
     idx_to_item: dict[int, str]
 
-    # Item index sets per domain
+    # Integer indices of items belonging to each domain.
+    # Used by evaluator to mask non-target items during full-rank eval.
     game_item_indices: set[int]
     movie_item_indices: set[int]
 
-    # Eval structures: {user_idx: set of relevant item indices}
+    # Pre-built eval structures: {user_idx: set of relevant/seen item indices}.
+    # "relevant" = test items with rating >= POSITIVE_THRESHOLD (ground truth).
+    # "seen" = all train items (masked during eval to avoid trivial hits).
     game_test_relevant: dict[int, set[int]] = field(default_factory=dict)
     game_val_relevant: dict[int, set[int]] = field(default_factory=dict)
     game_train_seen: dict[int, set[int]] = field(default_factory=dict)
@@ -137,16 +157,20 @@ class CrossDomainSplit:
     movie_val_relevant: dict[int, set[int]] = field(default_factory=dict)
     movie_train_seen: dict[int, set[int]] = field(default_factory=dict)
 
+    # Users to evaluate on (subset of users with relevant test items,
+    # capped at max_eval_users for speed)
     eval_user_indices: list[int] = field(default_factory=list)
 
-    # Subgroup assignments: {subgroup_name: [user_indices]}
+    # Subgroup assignments for fine-grained analysis: {subgroup_name: [user_indices]}.
+    # Subgroups capture cold-start severity and cross-domain activity balance.
     user_subgroups: dict[str, list[int]] = field(default_factory=dict)
 
     target_domain: str = "game"
     domain_pair: str = "movie_game"
     device: str = "cpu"
 
-    # Dataset metadata for save_result() / plot annotation
+    # Dataset metadata for save_result() / plot annotation — included in every
+    # result JSON so plots can show dataset context without re-reading parquets
     dataset_info: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -196,6 +220,11 @@ def _empty_df(template: pd.DataFrame) -> pd.DataFrame:
 def _leave_last_out(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Per-user leave-last-out split sorted by timestamp.
 
+    Unlike data_splitter.py's version, this handles n=1 users by putting them
+    in test only (super cold-start). This is critical for CDR experiments where
+    we want to measure how well source-domain knowledge transfers when the user
+    has zero target-domain training interactions.
+
     n == 1 → 0 train, 1 test  (super cold-start: must rely on source domain)
     n == 2 → 1 train, 1 test  (cold-start)
     n >= 3 → (n-2) train, 1 val, 1 test  (standard)
@@ -235,7 +264,14 @@ def _build_eval_structures(
     user_to_idx: dict[str, int],
     item_to_idx: dict[str, int],
 ) -> tuple[dict[int, set[int]], dict[int, set[int]]]:
-    """Build (test_relevant, train_seen) dicts keyed by user index."""
+    """Build (test_relevant, train_seen) dicts keyed by user index.
+
+    test_relevant: items the user rated >= POSITIVE_THRESHOLD in the test set.
+        These are the ground-truth items we want the model to rank highly.
+    train_seen: ALL items the user interacted with in training (any rating).
+        These are masked during eval so models can't get credit for re-ranking
+        items they were already trained on.
+    """
     test_relevant: dict[int, set[int]] = {}
     for _, row in test_df.iterrows():
         uid = user_to_idx.get(normalize_id(row["user_id"]))
@@ -301,7 +337,10 @@ def load_cross_domain_split(
     movie_item_ids = {normalize_id(x) for x in movie_df["item_id"].unique()}
 
     if single_domain_item_space:
-        # Only target-domain items in the embedding space
+        # Single-domain models (MF-BPR, LightGCN, NCF) only learn embeddings for
+        # target-domain items. This keeps the embedding table smaller and avoids
+        # wasting capacity on source items the model can't use.
+        # CDR models must NOT use this — they need a unified item space.
         target_ids = game_item_ids if target_domain == "game" else movie_item_ids
         all_items = sorted(target_ids)
         item_to_idx = {it: i for i, it in enumerate(all_items)}
@@ -337,6 +376,12 @@ def load_cross_domain_split(
     logger.info("Eval users: %d (of %d with relevant test items)", len(eval_user_indices), len(target_test_relevant))
 
     # ── Subgroups ───────────────────────────────────────────────────────────
+    # Subgroups partition eval users by their cross-domain activity pattern.
+    # This enables fine-grained analysis of where CDR models help vs hurt:
+    #   - Cold-start groups: super_cold (0 train), one_shot (1 train)
+    #   - Transfer groups: high source + low target (CDR should shine here)
+    #   - Balance groups: movie_heavy / game_heavy / balanced
+    #   - Unpopular variants: users whose train items are below-median popularity
     user_movie_count = movie_df.groupby(movie_df["user_id"].map(normalize_id)).size().to_dict()
     user_game_count = game_df.groupby(game_df["user_id"].map(normalize_id)).size().to_dict()
 
@@ -365,6 +410,8 @@ def load_cross_domain_split(
         }
 
     def _unpopular(uid_norm: str) -> bool:
+        """Check if majority of user's train items are below-median popularity.
+        Users who interact mostly with unpopular items are harder to recommend for."""
         items = user_train_items.get(uid_norm, set())
         if not items:
             return False
@@ -464,8 +511,8 @@ def load_cross_domain_split(
 
 def _cohort_filter_string(domain_pair: str) -> str:
     """Human-readable cohort filter description for dataset_info."""
-    # Phase 0: only movie_game with k-core >= 10
-    return "k-core >= 10 (both movies and games)"
+    # Phase 0 / Lessons 1–2: no overlap filter, users >= 10 total interactions
+    return "users >= 10 total interactions, no overlap filter"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

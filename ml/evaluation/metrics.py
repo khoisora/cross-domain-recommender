@@ -1,4 +1,9 @@
-"""Recommendation evaluation metrics: Recall@K, NDCG@K, HitRate@K."""
+"""Recommendation evaluation metrics: Recall@K, NDCG@K, HitRate@K.
+
+All metrics use binary relevance (relevant or not, no graded relevance).
+Default k_values=[10] — we only report @10 across the project.
+These are per-user metrics; aggregate_metrics() averages across users.
+"""
 
 from __future__ import annotations
 
@@ -18,11 +23,16 @@ def hit_rate_at_k(recommended: list[int], relevant: set[int], k: int) -> float:
 
 
 def ndcg_at_k(recommended: list[int], relevant: set[int], k: int) -> float:
-    """Normalized Discounted Cumulative Gain at K (binary relevance)."""
+    """Normalized Discounted Cumulative Gain at K (binary relevance).
+
+    DCG rewards relevant items appearing earlier in the ranked list.
+    IDCG is the best possible DCG (all relevant items at the top).
+    NDCG = DCG / IDCG normalizes to [0, 1].
+    """
     if not relevant:
         return 0.0
     dcg = sum(
-        1.0 / np.log2(i + 2)
+        1.0 / np.log2(i + 2)  # i+2 because log2(1) = 0, positions are 1-indexed
         for i, item in enumerate(recommended[:k])
         if item in relevant
     )

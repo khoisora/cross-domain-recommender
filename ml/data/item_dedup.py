@@ -17,6 +17,9 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Patterns to strip format/platform info from titles.
+# e.g., "The Matrix [Blu-ray]" → "The Matrix"
+#        "Halo (Xbox One)" → "Halo"
 _BRACKET_CONTENT = re.compile(r"\s*\[[^\]]*\]", re.IGNORECASE)
 _PAREN_CONTENT = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
 
@@ -104,8 +107,9 @@ def remap_ratings(
 ) -> pd.DataFrame:
     """Remap item external IDs in ratings to canonical IDs.
 
-    When a user has ratings for multiple variants of the same item,
-    keep the highest rating (user's best experience with that content).
+    When a user has ratings for multiple variants of the same item
+    (e.g., DVD + Blu-ray), keep the highest rating. Rationale: the user's
+    best experience with that content is the most informative signal.
     """
     df = ratings.copy()
     before = len(df)

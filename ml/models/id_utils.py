@@ -1,9 +1,14 @@
-"""Consistent string IDs for user/item keys across models."""
+"""Consistent string IDs for user/item keys across models.
+
+Amazon dataset IDs come in as mixed types (int, float, string) depending on
+how pandas reads them. This module ensures all ID lookups use the same
+canonical string form, preventing KeyError mismatches between data loading
+and model prediction.
+"""
 
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 
 def normalize_id(x) -> str:

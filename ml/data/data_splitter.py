@@ -1,8 +1,11 @@
 """Train/validation/test splitting utilities.
 
-The primary split used in benchmarks is leave-last-out, implemented in
-benchmark_common.py (_leave_last_out). This module provides additional
-split strategies for experimentation.
+The primary split used in benchmarks is _leave_last_out() in benchmark_common.py,
+which supports n=1 super cold-start users (0 train, 1 test). This module's version
+is more conservative: users with n<=2 interactions go entirely into train.
+
+Use this module for standalone experiments outside the benchmark framework.
+For benchmark scripts, always use benchmark_common.load_cross_domain_split().
 """
 
 from __future__ import annotations
