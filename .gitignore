@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Data & artifacts (large files)
+ml/data/amazon_2023/
+data/processed/
+artifacts/
+*.faiss
+*.ann
+*.pt
+*.pth
+*.bin
+*.pkl
+*.pickle
+*.h5
+*.npy
+*.npz
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# TensorBoard event runs
+log_tensorboard/
+ml/log_tensorboard/
+ml/scripts/benchmarks/log_tensorboard/
+
+# Coverage
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Claude Code
+.claude/
