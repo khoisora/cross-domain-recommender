@@ -76,16 +76,34 @@ SBERT (0.0310) reaches **87% of LightGCN** with zero training. SBERT-CDR (0.0330
 
 5. **Routing rule sharpened**: for users whose test item is likely niche (estimated from past movie genre history), route to SBERT-CDR regardless of game history count.
 
-## Updated decision rule (final, L2–L7)
+## Lesson progression summary (L1–L7)
 
-| User state | Recommended model | Key evidence |
+| Lesson | Question | Key finding |
 |---|---|---|
-| 0 games (cold), rich movies | PTUPCDR (collab CDR) | L6 (cold-start) |
-| 0–1 games, niche/unpopular taste | **SBERT or SBERT-CDR** | L7 subgroup (11× win) |
-| 1 game, mainstream taste | SBERT or LightGCN blend | L7 (one_shot_target) |
-| 3–9 games | LightGCN | L2, L4 |
-| 10+ games | LightGCN | L2 |
-| Any, target item is long-tail | **SBERT-CDR** | L7 subgroup |
+| **L1** | BPR vs Explicit MF | BPR wins 6× on Recall@10 — ranking loss > reconstruction loss for top-K |
+| **L2** | Mixed population baseline | LightGCN leads; CDR underperforms on non-overlap users — wrong population for CDR |
+| **L3** | Overlap users only | Restricting to 100% overlap: PTUPCDR +276%, EMCDR +53% — CDR needs overlap |
+| **L4** | Source-rich (movies≥10) | PTUPCDR closes to within 17% of LightGCN — richer movie history = better transfer |
+| **L5** | Catalog sharpening | BiTGCF +18%, PTUPCDR/EMCDR drop — dense catalog helps graph CDR, hurts mapping CDR |
+| **L6** | Cold-start (0 game history) | PTUPCDR 4× over LightGCN on zero-game users — CDR essential for cold-start |
+| **L7** | SBERT content CDR | SBERT-CDR near LightGCN overall; **11× over LightGCN on niche/unpopular items** |
+
+**Core insight**: optimal model is determined by two axes — *how much target (game) history* and *how niche the user's taste is*. LightGCN dominates with sufficient collaborative signal. CDR bridges the gap when movie history compensates for sparse games. SBERT fills the long-tail blind spot that all collaborative models share.
+
+## Final routing rule (L2–L7)
+
+```
+User state                                    Model
+────────────────────────────────────────────────────────────────
+0 games, rich movies (≥10), mainstream      → PTUPCDR
+0 games, any movies, niche/unpopular taste  → SBERT-CDR
+0 games, few movies (<10)                   → Popularity baseline
+1 game,  train item is niche/unpopular      → SBERT          (11× win)
+1 game,  train item is popular              → SBERT or LightGCN blend
+2–9 games                                   → LightGCN
+10+ games                                   → LightGCN
+Any user, test item likely long-tail        → SBERT-CDR      (override)
+```
 
 ## Benchmark plots
 
