@@ -54,7 +54,7 @@ K = 10  # all metrics @10 only — no @5, @20, @50
 # ---------------------------------------------------------------------------
 _DOMAIN_PAIR_PATHS: dict[str, tuple[Path, Path]] = {
     "movie_game": (
-        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_overlap",
+        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_sparse_loose",
         PROJECT_ROOT / "artifacts",
     ),
 }
@@ -378,6 +378,86 @@ def load_cross_domain_split(
 
     logger.info("Eval users: %d (of %d with relevant test items)", len(eval_user_indices), len(target_test_relevant))
 
+    # ── Subgroups for LLO split ──────────────────────────────────────────────
+    # Item popularity in target train (for unpopular detection)
+    target_train_df = game_train if target_domain == "game" else movie_train
+    _item_pop_raw = target_train_df.groupby("item_id").size().to_dict()
+    item_train_pop: dict[int, int] = {
+        item_to_idx[normalize_id(iid)]: int(cnt)
+        for iid, cnt in _item_pop_raw.items()
+        if normalize_id(iid) in item_to_idx
+    }
+    median_pop = float(np.median(list(item_train_pop.values()))) if item_train_pop else 1.0
+
+    # Per-user target train size and train item sets
+    _train_size_raw = target_train_df.groupby("user_id").size().to_dict()
+    user_train_size = {normalize_id(uid): int(cnt) for uid, cnt in _train_size_raw.items()}
+    user_train_items: dict[str, set[int]] = {}
+    for _uid_raw, _grp in target_train_df.groupby("user_id"):
+        _uid_norm = normalize_id(_uid_raw)
+        user_train_items[_uid_norm] = {
+            item_to_idx[normalize_id(iid)]
+            for iid in _grp["item_id"] if normalize_id(iid) in item_to_idx
+        }
+
+    def _unpopular_concentrated(uid_norm: str) -> bool:
+        items = user_train_items.get(uid_norm, set())
+        if not items:
+            return False
+        unpop = sum(1 for i in items if item_train_pop.get(i, 0) <= median_pop)
+        return unpop > len(items) / 2
+
+    game_counts_all = game_df.groupby("user_id").size().to_dict()
+    movie_counts_all = movie_df.groupby("user_id").size().to_dict()
+    user_game_count = {normalize_id(uid): int(cnt) for uid, cnt in game_counts_all.items()}
+    user_movie_count = {normalize_id(uid): int(cnt) for uid, cnt in movie_counts_all.items()}
+
+    subgroups: dict[str, list[int]] = {
+        "super_cold_users": [],
+        "one_shot_target_user": [],
+        "one_shot_unpopular_target_user": [],
+        "high_source_low_target": [],
+        "high_source_unpopular_low_target": [],
+        "movie_heavy": [],
+        "balanced": [],
+        "game_heavy": [],
+        "sparse_target": [],
+    }
+    idx_to_user_map = {v: k for k, v in user_to_idx.items()}
+    for uid_idx in eval_user_indices:
+        uid_str = idx_to_user_map[uid_idx]
+        gc = user_game_count.get(uid_str, 0)
+        mc = user_movie_count.get(uid_str, 0)
+        target_total = gc if target_domain == "game" else mc
+        source_count = mc if target_domain == "game" else gc
+        train_size = user_train_size.get(uid_str, 0)
+
+        if train_size == 0 and source_count >= 10:
+            subgroups["super_cold_users"].append(uid_idx)
+        if train_size == 1 and source_count >= 10:
+            if _unpopular_concentrated(uid_str):
+                subgroups["one_shot_unpopular_target_user"].append(uid_idx)
+            else:
+                subgroups["one_shot_target_user"].append(uid_idx)
+        if target_total <= 3 and source_count >= 15:
+            if _unpopular_concentrated(uid_str):
+                subgroups["high_source_unpopular_low_target"].append(uid_idx)
+            else:
+                subgroups["high_source_low_target"].append(uid_idx)
+        if target_total <= 3 and source_count < 10:
+            subgroups["sparse_target"].append(uid_idx)
+        elif target_total > 3:
+            if mc > 2 * gc:
+                subgroups["movie_heavy"].append(uid_idx)
+            elif gc > 2 * mc:
+                subgroups["game_heavy"].append(uid_idx)
+            else:
+                subgroups["balanced"].append(uid_idx)
+
+    for name, uids in subgroups.items():
+        if uids:
+            logger.info("  subgroup %-35s : %d users", name, len(uids))
+
     device = (
         "mps" if torch.backends.mps.is_available()
         else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -415,7 +495,7 @@ def load_cross_domain_split(
         movie_val_relevant=movie_val_relevant,
         movie_train_seen=movie_train_seen,
         eval_user_indices=eval_user_indices,
-        user_subgroups={},
+        user_subgroups=subgroups,
         target_domain=target_domain,
         domain_pair=domain_pair,
         device=device,

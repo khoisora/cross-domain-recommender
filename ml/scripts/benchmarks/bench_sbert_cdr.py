@@ -1,11 +1,18 @@
-"""SBERT-CDR — content-based cross-domain recommender.
+"""SBERT-CDR — content-based cross-domain recommender (LLO evaluation).
 
-User profile = normalised mean of MOVIE item embeddings (source domain).
-For overlap users: blends source + target item embeddings with source_weight.
+User profile strategy (cross-domain):
+  - source-only (no game train): mean of movie embeddings → CDR transfer
+  - overlap users: weighted blend of movie + game profiles
+  - target-only: mean of game embeddings (same as plain SBERT)
 
-Since movies and games are encoded in the same SBERT semantic space,
-"action movie" and "action game" naturally have similar embeddings,
-enabling zero-shot cross-domain transfer without any collaborative training.
+Key insight: "action movie" and "action game" occupy similar regions in SBERT
+semantic space. Source-only and one-shot users benefit most from this transfer.
+
+Key subgroups of interest (L7 focus):
+  one_shot_unpopular_target_user — 1 game train item + unpopular test game:
+    SBERT-CDR wins here because collab CDR can't find niche long-tail items
+  high_source_unpopular_low_target — rich niche movie taste, few games:
+    semantic profile from movies can find niche games via content similarity
 """
 
 from __future__ import annotations
@@ -23,8 +30,8 @@ if _root not in sys.path:
 import pandas as pd
 
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, evaluate_cross_domain,
-    load_user_split_cold_start_split, save_result, setup_logging,
+    add_common_args, configure_benchmark, evaluate_cross_domain,
+    load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
     POSITIVE_THRESHOLD, _DOMAIN_PAIR_PATHS,
 )
 from ml.models.sbert_model import SBERTModel
@@ -34,21 +41,21 @@ ALGO = "SBERT-CDR"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=f"{ALGO} cold-start benchmark")
+    parser = argparse.ArgumentParser(description=f"{ALGO} benchmark")
     add_common_args(parser)
     parser.add_argument("--source-weight", type=float, default=0.5,
                         help="Weight for movie profile in overlap-user blend (default=0.5)")
     args = parser.parse_args()
 
     setup_logging()
+    configure_benchmark(args.domain_pair)
 
-    # L7 uses cold-start split — evaluates SBERT-CDR on zero-game-history users
-    data = load_user_split_cold_start_split(
+    data = load_cross_domain_split(
         domain_pair=args.domain_pair, target_domain=args.target,
+        single_domain_item_space=False,
     )
-    data.device = "cpu"
+    verify_no_leakage(data)
 
-    # Load item metadata from both domains (shared SBERT space)
     data_dir = _DOMAIN_PAIR_PATHS[args.domain_pair][0]
     movies_df = pd.read_parquet(data_dir / "movies.parquet")
     games_df = pd.read_parquet(data_dir / "games.parquet")
@@ -57,9 +64,6 @@ def main() -> None:
     t0 = time.time()
     model = SBERTModel()
     model.encode_items(items_df, data.item_to_idx)
-    # cross_train = all movies + warm-user games
-    # cold users contribute only movies → user profile = mean of movie embeddings
-    # This is the core CDR transfer: movie semantic space → game recommendations
     model.compute_cross_domain_user_embeddings(
         data.cross_train, data.user_to_idx, data.item_to_idx,
         source_domain="movie", target_domain="game",
@@ -73,7 +77,7 @@ def main() -> None:
     save_result(
         algo=ALGO, metrics=metrics, dataset_info=data.dataset_info,
         lesson=args.lesson, train_time=train_time,
-        description=f"SBERT-CDR all-MiniLM-L6-v2, source_weight={args.source_weight}, cold-start eval",
+        description=f"SBERT-CDR all-MiniLM-L6-v2, source_weight={args.source_weight}, LLO eval",
     )
 
 

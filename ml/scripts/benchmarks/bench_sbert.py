@@ -1,8 +1,12 @@
-"""SBERT — in-domain content-based benchmark.
+"""SBERT — in-domain content-based benchmark (LLO evaluation).
 
 User profile = mean of game item embeddings (target-domain only).
 No training required. Measures how well semantic text similarity serves
-as a game recommender when the user has game history.
+as a game recommender. Evaluated on all users via standard LLO split.
+
+Key subgroups of interest:
+  one_shot_unpopular_target_user — users with 1 game + unpopular test item
+  high_source_unpopular_low_target — movie-rich users with niche taste
 """
 
 from __future__ import annotations
@@ -20,8 +24,8 @@ if _root not in sys.path:
 import pandas as pd
 
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, evaluate_cross_domain,
-    load_user_split_cold_start_split, save_result, setup_logging,
+    add_common_args, configure_benchmark, evaluate_cross_domain,
+    load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
     POSITIVE_THRESHOLD, _DOMAIN_PAIR_PATHS,
 )
 from ml.models.sbert_model import SBERTModel
@@ -31,31 +35,25 @@ ALGO = "SBERT"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=f"{ALGO} cold-start benchmark")
+    parser = argparse.ArgumentParser(description=f"{ALGO} benchmark")
     add_common_args(parser)
     args = parser.parse_args()
 
     setup_logging()
+    configure_benchmark(args.domain_pair)
 
-    # L7 uses cold-start split to evaluate on zero-game users
-    data = load_user_split_cold_start_split(
+    data = load_cross_domain_split(
         domain_pair=args.domain_pair, target_domain=args.target,
+        single_domain_item_space=True,
     )
-    # Force CPU — unified ID space too large for MPS
-    data.device = "cpu"
+    verify_no_leakage(data)
 
-    # Load game item metadata
     data_dir = _DOMAIN_PAIR_PATHS[args.domain_pair][0]
     games_df = pd.read_parquet(data_dir / "games.parquet")
 
-    # Build item_to_idx for game-only items (SBERT scores over all items but
-    # computes user profile from game train interactions for cold users = 0 games)
     t0 = time.time()
     model = SBERTModel()
     model.encode_items(games_df, data.item_to_idx)
-    # game_train has only warm users — cold users have no game history
-    # SBERT user profile = 0 vector for cold users → uniform scores → random rank
-    # This establishes the content-only game baseline for cold-start users
     model.compute_user_embeddings(
         data.game_train, data.user_to_idx, data.item_to_idx,
         positive_threshold=POSITIVE_THRESHOLD,
@@ -67,7 +65,7 @@ def main() -> None:
     save_result(
         algo=ALGO, metrics=metrics, dataset_info=data.dataset_info,
         lesson=args.lesson, train_time=train_time,
-        description="SBERT all-MiniLM-L6-v2, in-domain game profiles (cold-start eval)",
+        description="SBERT all-MiniLM-L6-v2, in-domain game profiles, LLO eval",
     )
 
 
