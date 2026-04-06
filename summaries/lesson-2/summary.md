@@ -1,8 +1,20 @@
-# Lesson 2 — Low overlap kills CDR: single-domain graph wins on mixed population
+# Lesson 2 — Single-domain graph beats CDR on mixed population
 
-**Claim**: On a naturally mixed population with very low user overlap (~5.8%), CDR models underperform single-domain models. Cross-domain transfer needs shared users to learn from.
+**Claim**: On standard LLO with a mixed user population, a well-tuned single-domain graph model (LightGCN) outperforms all collaborative CDR models.
 
-**Result**: Confirmed. LightGCN leads by 4.5× over the best CDR model on full-rank Recall@10. All three CDR models (EMCDR, CMF, PTUPCDR) cluster near the bottom.
+**Result**: Confirmed. LightGCN leads by 1.9x over MF-BPR and 1.9x over the best CDR model (EMCDR) on full-rank Recall@10.
+
+---
+
+## What changed vs Lesson 1
+
+| Aspect | Lesson 1 | Lesson 2 |
+|--------|----------|----------|
+| **Models** | MF Explicit, MF BPR (2 models) | +LightGCN, +NCF, +CMF, +EMCDR, +PTUPCDR (5 new models) |
+| **Data** | Same | Same (no user k-core, ~1M randomly sampled users) |
+| **Evaluation** | Same | Same |
+
+**Kept constant**: Dataset (1M users, no k-core, 5.8% overlap), item k-core, LLO split, POSITIVE_THRESHOLD=4, all metrics @10.
 
 ---
 
@@ -10,63 +22,66 @@
 
 | File | Change |
 |---|---|
-| `ml/data/process_data.py` | Added `min_user_interactions` and `sample_users` params to `build_movie_game_dataset()`. Lesson 2 uses no user k-core + 100K random sample preserving natural overlap ratio. |
-| `ml/models/lightgcn.py` | Ported from old repo. Fixed early stopping: val-only patience when `val_metric_fn` provided. |
+| `ml/models/lightgcn.py` | Ported from old repo. Val-based early stopping. |
 | `ml/models/ncf.py` | Ported NCF (NeuMF) model from old repo. |
 | `ml/models/cmf.py` | Ported CMF model from old repo. |
 | `ml/models/emcdr.py` | Ported EMCDR model from old repo. |
 | `ml/models/ptupcdr.py` | Ported PTUPCDR model from old repo. |
 | `ml/models/_cdr_base.py` | Ported shared CDR training loop (EMCDR/PTUPCDR). |
-| `ml/scripts/benchmarks/bench_lightgcn.py` | Fixed config: layers 2→3, reg 0.01→0.001, val-based early stopping. |
+| `ml/scripts/benchmarks/bench_lightgcn.py` | New bench script. layers=3, reg=0.001, val early stopping. |
 | `ml/scripts/benchmarks/bench_ncf.py` | New bench script for NCF. |
 | `ml/scripts/benchmarks/bench_cmf.py` | New bench script for CMF. |
 | `ml/scripts/benchmarks/bench_emcdr.py` | New bench script for EMCDR. |
 | `ml/scripts/benchmarks/bench_ptupcdr.py` | New bench script for PTUPCDR. |
-| `ml/scripts/benchmarks/benchmark_common.py` | `_cohort_filter_string()` now reads from `dataset_metadata.json` instead of hardcoding. |
 
 ## Dataset characteristics
 
 | Property | Value |
 |---|---|
 | Domain pair | movie_game |
-| Cohort filter | No user k-core filter, sampled to ~100K users |
-| n_users | 99,999 |
-| n_movie_items | 39,497 |
-| n_game_items | 8,471 |
-| n_movie_interactions | 180,070 |
-| n_game_interactions | 37,683 |
-| Overlap users | 5,752 (5.8%) |
+| Cohort filter | no user k-core filter, sampled to ~1000K users |
+| n_users | 1,000,000 |
+| n_movie_items | 53,372 |
+| n_game_items | 14,407 |
+| n_movie_interactions | 1,834,679 |
+| n_game_interactions | 377,994 |
+| Overlap users | 57,657 (5.8%) |
 | Split | Leave-last-out on games |
+| Game train / val / test | 115,048 / 24,550 / 238,396 |
 
 ## Benchmark results
 
-| Model | Family | Recall@10 | NDCG@10 | HR@10 | sampled NDCG@10 |
+| Model | Family | Recall@10 | NDCG@10 | Sampled HR@10 | Sampled NDCG@10 |
 |---|---|---|---|---|---|
-| **LightGCN** | Graph (single-domain) | **0.0180** | **0.0098** | 0.2020 | 0.0860 |
-| NCF | Neural (single-domain) | 0.0065 | 0.0040 | 0.8540 | 0.5247 |
-| EMCDR | Mapping (CDR) | 0.0040 | 0.0020 | 0.7290 | 0.4400 |
-| CMF | Joint MF (CDR) | 0.0035 | 0.0019 | 0.6950 | 0.4236 |
-| PTUPCDR | Personalized mapping (CDR) | 0.0015 | 0.0006 | 0.8300 | 0.5130 |
-| MF-BPR | MF (single-domain) | 0.0005 | 0.0003 | 0.1120 | 0.0438 |
+| **LightGCN** | Graph (single-domain) | **0.0290** | **0.0157** | 0.3005 | 0.1413 |
+| MF-BPR | MF (single-domain) | 0.0165 | 0.0088 | 0.1720 | 0.0779 |
+| EMCDR | Mapping (CDR) | 0.0155 | 0.0077 | 0.8235 | 0.4904 |
+| PTUPCDR | Personalized mapping (CDR) | 0.0095 | 0.0047 | 0.8850 | 0.5401 |
+| NCF | Neural (single-domain) | 0.0065 | 0.0028 | 0.8950 | 0.5488 |
+| CMF | Joint MF (CDR) | 0.0035 | 0.0021 | 0.6945 | 0.4273 |
 
 ### % gap vs LightGCN (full-rank Recall@10)
 
 | Model | Gap |
 |---|---|
-| NCF | -63.9% |
-| EMCDR | -77.8% |
-| CMF | -80.6% |
-| PTUPCDR | -91.7% |
-| MF-BPR | -97.2% |
+| MF-BPR | -43.1% |
+| EMCDR | -46.6% |
+| PTUPCDR | -67.2% |
+| NCF | -77.6% |
+| CMF | -87.9% |
+
+## Benchmark plots
+
+- Main comparison: `artifacts/plots/lesson_2_20260406_141818.png`
 
 ## Key takeaways
 
-1. **LightGCN dominates** on full-rank metrics (Recall@10=0.0180), the only model with meaningful ranking ability on this sparse, low-overlap dataset.
+1. **LightGCN dominates** on full-rank metrics (Recall@10=0.0290), nearly 2x over MF-BPR and the best CDR model. The graph structure captures collaborative signal effectively even on sparse data.
 
-2. **CDR models cluster near zero** on full-rank metrics. EMCDR (0.0040), CMF (0.0035), and PTUPCDR (0.0015) all score 4-12× below LightGCN. With only 5,752 overlap users (5.8%), the cross-domain mapping has almost no training signal.
+2. **CDR models underperform single-domain**. EMCDR (0.0155) is the best CDR but still below MF-BPR (0.0165). With only 5.8% overlap, cross-domain mappings have too few shared users to learn meaningful transfer.
 
-3. **Sampled metrics are misleading here**. NCF and PTUPCDR show high HR@10 (0.85, 0.83) on 1+99 sampled eval, but their full-rank scores are near zero. The sparse dataset makes random negatives easy to beat but full catalog ranking nearly impossible.
+3. **Sampled metrics diverge from full-rank**. NCF, PTUPCDR, and EMCDR all show very high sampled HR@10 (0.82-0.90) but low full-rank Recall@10. The 1-vs-99 protocol is too easy — models learn user/item biases that beat random negatives but fail to rank the full 14K item catalog.
 
-4. **All scores are low** compared to denser benchmarks. The 100K user sample with only ~2.2 ratings/user average creates extreme sparsity. This is by design — it represents the real-world scenario where most users are single-domain.
+4. **MF-BPR holds up well**. Despite being the simplest model, it beats all CDR models on full-rank. BPR's pairwise objective produces discriminative scores even on sparse data.
 
-5. **Lesson 3 setup**: Filtering to 100% overlap users should dramatically improve CDR scores by giving the transfer mapping enough shared users to learn from. This proves overlap % is the key variable for CDR effectiveness.
+5. **Lesson 3 setup**: Filtering to 100% overlap users should improve CDR by giving transfer mappings enough shared users. The key question: can CDR catch LightGCN when overlap is guaranteed?
