@@ -115,8 +115,8 @@ def fit_cdr(
         dataset = create_dataset(config)
         train_data, _, _ = data_preparation(config, dataset)
 
-        from recbole_cdr.model.cross_domain_recommender import CMF, EMCDR
-        model_cls = {"CMF": CMF, "EMCDR": EMCDR}[model_name]
+        from recbole_cdr.model.cross_domain_recommender import CMF, EMCDR, BiTGCF
+        model_cls = {"CMF": CMF, "EMCDR": EMCDR, "BiTGCF": BiTGCF}[model_name]
         model = model_cls(config, dataset)
 
         CrossDomainTrainer(config, model).fit(train_data, None, verbose=True, saved=False)
