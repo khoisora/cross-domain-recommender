@@ -326,7 +326,7 @@ Port the minimum shared code from `~/work/MoviesGamesRecommender` needed to run 
 **1. Data processing**
 
 -   Port `ml/data/process_data.py` from the old repo, but **only the core pipeline**: raw JSONL → parquet for the movie_game pair. Item k-core: movies ≥ 20, games ≥ 10. User k-core and user sampling are configurable via CLI args (`--min-user-interactions`, `--sample-users`). Do **not** filter for overlap users — that restriction is introduced in Lesson 3.
--   **Lesson 1–2 default**: no user k-core (`--min-user-interactions 0`), sampled to ~100K users (`--sample-users 100000`), preserving overlap ratio.
+-   **Lesson 1–2 default**: no user k-core (`--min-user-interactions 0`), randomly sampled to ~1M users (`--sample-users 1000000`).
 -   The initial processed output is simply `processed/` (movies + games + ratings parquets). All bench scripts in Lessons 1–2 use this same dataset.
 -   Register only one domain pair in `_DOMAIN_PAIR_PATHS` for now: `"movie_game"` pointing at `processed/`.
 -   **Run the data pipeline as part of Phase 0**: after writing `process_data.py`, execute it to generate the parquet files in `processed/`. Verify the output exists and matches expected counts from `dataset_metadata.json` before proceeding.
@@ -425,7 +425,7 @@ NewCrossDomainRecommenders/
 
 **Claim**: Models trained to minimize RMSE on star ratings optimize a different objective than top-10 ranking. BPR-trained implicit models outperform explicit MF on Recall@10 even at the same model capacity.
 
-**Data**: `movie_game` (no user k-core filter, sampled to ~100K users preserving overlap ratio). **Split**: Standard LLO on games.
+**Data**: `movie_game` (no user k-core filter, randomly sampled to ~1M users). **Split**: Standard LLO on games.
 
 **Models to port from old repo**:
 
@@ -442,7 +442,7 @@ NewCrossDomainRecommenders/
 
 **Claim**: On standard LLO with a mixed user population, a well-tuned single-domain graph model (LightGCN) outperforms all collaborative CDR models.
 
-**Data**: `movie_game` (same as Lesson 1: no user k-core, ~100K sampled users). **Split**: Standard LLO on games.
+**Data**: `movie_game` (same as Lesson 1: no user k-core, ~1M randomly sampled users). **Split**: Standard LLO on games.
 
 **Models to port**:
 

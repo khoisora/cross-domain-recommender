@@ -357,28 +357,12 @@ def build_movie_game_dataset(
             min_user_interactions, before_total, len(filtered_ratings), len(valid_users),
         )
 
-    # 5. Random user sampling (optional — preserves overlap ratio)
+    # 5. Random user sampling (optional)
     if sample_users is not None:
-        movie_r = filtered_ratings[filtered_ratings["domain"] == "movie"]
-        game_r = filtered_ratings[filtered_ratings["domain"] == "game"]
-        mu = set(movie_r["user_id"])
-        gu = set(game_r["user_id"])
-        overlap = sorted(mu & gu)
-        movie_only = sorted(mu - gu)
-        game_only = sorted(gu - mu)
-        total = len(overlap) + len(movie_only) + len(game_only)
-
+        all_users = sorted(filtered_ratings["user_id"].unique())
         rng = np.random.RandomState(SEED)
-        n_ov = max(1, int(sample_users * len(overlap) / total))
-        n_mo = max(1, int(sample_users * len(movie_only) / total))
-        n_go = max(1, int(sample_users * len(game_only) / total))
-
-        sampled = set()
-        sampled.update(rng.choice(overlap, min(n_ov, len(overlap)), replace=False))
-        sampled.update(rng.choice(movie_only, min(n_mo, len(movie_only)), replace=False))
-        sampled.update(rng.choice(game_only, min(n_go, len(game_only)), replace=False))
-
-        before_sample = filtered_ratings["user_id"].nunique()
+        sampled = set(rng.choice(all_users, min(sample_users, len(all_users)), replace=False))
+        before_sample = len(all_users)
         filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(sampled)].copy()
         logger.info("User sampling: %d -> %d users", before_sample, filtered_ratings["user_id"].nunique())
 

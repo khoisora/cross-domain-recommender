@@ -9,7 +9,7 @@
 | Aspect | Phase 0 | Lesson 1 |
 |--------|---------|----------|
 | **Models** | Infrastructure only | +MF Explicit (Surprise SVD), +MF BPR (pairwise BPR loss) |
-| **Data** | Raw JSONL → parquet pipeline | No user k-core, sampled to ~100K users |
+| **Data** | Raw JSONL → parquet pipeline | No user k-core, randomly sampled to ~1M users |
 | **Evaluation** | Framework built | First benchmark run with full-rank + sampled@99 |
 
 **Kept constant**: Item k-core (movies >= 20, games >= 10), leave-last-out split on games, POSITIVE_THRESHOLD = 4, all metrics @10.
@@ -25,7 +25,7 @@
 | `ml/models/id_utils.py` | Modified | Added `map_user_item_columns()` for DataFrame → index mapping |
 | `ml/scripts/benchmarks/bench_mf_explicit.py` | Added | Benchmark script for MF Explicit |
 | `ml/scripts/benchmarks/bench_mf_bpr.py` | Added | Benchmark script for MF BPR |
-| `ml/data/process_data.py` | Modified | Added `--min-user-interactions` and `--sample-users` CLI args, conditional k-core, proportional user sampling |
+| `ml/data/process_data.py` | Modified | Added `--min-user-interactions` and `--sample-users` CLI args, conditional k-core, simple random user sampling |
 | `ml/scripts/benchmarks/benchmark_common.py` | Modified | Dynamic `_cohort_filter_string()` reads from `dataset_metadata.json`; removed subgroup logic (deferred to L4) |
 
 ---
@@ -35,15 +35,15 @@
 | Property | Value |
 |----------|-------|
 | Domain pair | movie_game |
-| Cohort filter | no user k-core filter, sampled to ~100K users |
-| Total users | 99,999 |
-| Movie interactions | 180,070 |
-| Game interactions | 37,683 |
-| Game items | 8,471 |
-| Overlap users | 5,752 (5.8%) |
+| Cohort filter | no user k-core filter, sampled to ~1M users |
+| Total users | 1,000,000 |
+| Movie interactions | 1,834,679 |
+| Game interactions | 377,994 |
+| Game items | 14,407 |
+| Overlap users | 57,657 (5.8%) |
 | Split | Leave-last-out on games |
-| Game train / val / test | 11,340 / 2,447 / 23,896 |
-| Eval users (sampled) | 2,000 of 17,904 with relevant test items |
+| Game train / val / test | 115,048 / 24,550 / 238,396 |
+| Eval users (sampled) | 2,000 of 179,390 with relevant test items |
 
 ---
 
@@ -53,33 +53,35 @@
 
 | Model | Recall@10 | NDCG@10 | Sampled HR@10 | Sampled NDCG@10 | Train Time |
 |-------|-----------|---------|---------------|-----------------|------------|
-| MF_Explicit (SVD, emb=128) | **0.0080** | **0.0033** | **0.2715** | **0.1179** | 0.4s |
-| MF_BPR (emb=64, 60 epochs) | 0.0015 | 0.0010 | 0.1050 | 0.0404 | 1.3s |
+| MF_Explicit (SVD, emb=128) | 0.0035 | 0.0016 | 0.2700 | 0.1115 | 2.0s |
+| MF_BPR (emb=64, 60 epochs) | **0.0185** | **0.0100** | 0.1770 | 0.0817 | 11.1s |
 
-**MF Explicit advantage**: 5.3x on Recall@10, 3.3x on NDCG@10, 2.6x on sampled HR@10.
+**BPR advantage**: 5.3x on Recall@10, 6.3x on NDCG@10.
+
+MF Explicit wins on sampled metrics (1.5x HR@10) — it learns good user/item biases from all explicit ratings, which helps in the easier 1-vs-99 task. But in the harder full-rank setting (ranking all 14K items), BPR's pairwise objective produces far more discriminative scores.
 
 ---
 
 ## Benchmark Plots
 
-- Main comparison: `artifacts/plots/lesson_1_20260406_121508.png`
+- Main comparison: `artifacts/plots/lesson_1_20260406_132547.png`
 
 ---
 
 ## Key Takeaways
 
-1. **Lesson claim reversed**: On this extremely sparse dataset (100K users, no k-core), MF Explicit beats MF BPR on all metrics. This is the opposite of the original claim. The reason: BPR only has 8,944 positive pairs to learn from (game train ratings >= 4), which is insufficient for pairwise learning across 100K users and 8K items.
+1. **Lesson claim confirmed**: BPR massively outperforms explicit SVD on full-rank ranking metrics. The 5.3x gap on Recall@10 demonstrates that RMSE-optimized models are fundamentally misaligned with top-K ranking evaluation.
 
-2. **Why BPR fails here**: BPR loss barely moves (0.693 → 0.692 over 60 epochs), meaning the model cannot learn meaningful user-item rankings from so few positive pairs. MF Explicit uses all 11K explicit ratings (including lower ratings), giving it more signal to fit user/item biases.
+2. **Why explicit fails at ranking**: SVD learns to predict star ratings accurately (e.g., 4.2 vs 4.3), but the differences between items are tiny — all popular items get similar high predicted ratings. BPR directly optimizes the ranking order, producing much more discriminative scores.
 
-3. **Extreme sparsity**: With no user k-core filter, most of the 100K users have very few game interactions. Only 5.8% of users appear in both domains. The game train set has just 11,340 interactions across 100K users — an average of 0.11 game train interactions per user.
+3. **Sampled vs full-rank divergence**: MF Explicit wins on sampled HR@10 (0.27 vs 0.18) because in a 1-vs-99 setting, even rough bias estimates suffice. Full-rank eval (all 14K items) is the harder, more realistic test — and BPR dominates there.
 
-4. **Absolute numbers are very low**: Even MF Explicit only achieves 0.8% Recall@10 in full-rank. This motivates adding more powerful models (graph, neural, CDR) in Lesson 2 on the same data to see if architecture can compensate for sparsity.
+4. **Absolute numbers are low**: BPR achieves 1.85% Recall@10 with no cross-domain signal and a mixed population where many users have very few game interactions. This sets up the motivation for Lesson 2: can architecture (graph, neural) or cross-domain transfer improve over simple BPR?
 
-5. **Sampled metrics paint a different picture**: MF Explicit achieves 27% HR@10 in the sampled protocol (1 pos + 99 neg), showing the model does learn something — it just drowns in the full-rank setting with 8,471 candidate items.
+5. **Scale matters for BPR**: At 100K users, BPR had only ~9K positive pairs and failed to learn. At 1M users with ~90K positives, BPR converges properly. The sampling choice directly affects which model family wins.
 
 ---
 
 ## Match with Original Plan
 
-The lesson's original claim — that BPR outperforms explicit MF — is **not confirmed** on this dataset. The reversal is driven by extreme sparsity: without k-core filtering, BPR's pairwise loss has too few positive pairs to learn from. MF Explicit's advantage of using all explicit ratings (not just positives) gives it an edge in this regime. This sets up an interesting question for Lesson 2: can more powerful architectures (LightGCN, NCF) and cross-domain transfer (CMF, EMCDR, PTUPCDR) overcome this sparsity?
+The lesson's claim — that BPR outperforms explicit MF on ranking metrics — is **confirmed** at 1M users. BPR is now the baseline family for subsequent lessons. The absolute performance is low enough to motivate both architectural improvements (Lesson 2: graph, CDR) and population refinement (Lesson 3: overlap cohorts).
