@@ -325,7 +325,7 @@ Port the minimum shared code from `~/work/MoviesGamesRecommender` needed to run 
 
 **1. Data processing**
 
--   Port `ml/data/process_data.py` from the old repo, but **only the core pipeline**: raw JSONL → parquet for the movie_game pair. Item k-core: movies ≥ 20, games ≥ 10. User k-core and user sampling are configurable via CLI args (`--min-user-interactions`, `--sample-users`). Do **not** filter for overlap users — that restriction is introduced in Lesson 3.
+-   Port `ml/data/process_data.py` from the old repo, but **only the core pipeline**: raw JSONL → parquet for the movie_game pair. **Convert to implicit first**: keep only ratings ≥ 4 (POSITIVE_THRESHOLD) before any k-core or sampling. Item k-core: movies ≥ 20, games ≥ 10. User k-core and user sampling are configurable via CLI args (`--min-user-interactions`, `--sample-users`). Do **not** filter for overlap users — that restriction is introduced in Lesson 3.
 -   **Lesson 1–2 default**: no user k-core (`--min-user-interactions 0`), randomly sampled to ~1M users (`--sample-users 1000000`).
 -   The initial processed output is simply `processed/` (movies + games + ratings parquets). All bench scripts in Lessons 1–2 use this same dataset.
 -   Register only one domain pair in `_DOMAIN_PAIR_PATHS` for now: `"movie_game"` pointing at `processed/`.

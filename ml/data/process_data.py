@@ -57,6 +57,7 @@ META_FILES = {
 }
 
 SEED = 42
+POSITIVE_THRESHOLD = 4  # rating >= 4 counts as a positive interaction
 
 # K-core thresholds
 # Users: >= 10 total interactions across both domains (not per-domain)
@@ -267,10 +268,11 @@ def build_movie_game_dataset(
       1. Load raw JSONL reviews + metadata for both domains
       2. Filter game items to actual games (exclude accessories, consoles)
       3. Deduplicate items (merge format/platform variants)
-      4. Item k-core: movies >= 20, games >= 10 interactions
-      5. Optional user k-core (min_user_interactions, default 10; set 0 to skip)
-      6. Optional random user sampling (sample_users, preserving overlap ratio)
-      7. Save parquet files + metadata JSON
+      4. Convert to implicit: keep only ratings >= 4
+      5. Item k-core: movies >= 20, games >= 10 interactions
+      6. Optional user k-core (min_user_interactions, default 10; set 0 to skip)
+      7. Optional random user sampling (sample_users)
+      8. Save parquet files + metadata JSON
 
     Caches results: skips processing if output parquets already exist.
 
@@ -325,7 +327,14 @@ def build_movie_game_dataset(
     logger.info("Deduplicating items...")
     ratings, items = deduplicate_dataset(ratings, items)
 
-    # 3. Item k-core filtering per domain (remove items with too few interactions)
+    # 3. Convert to implicit: keep only positive interactions (rating >= 4)
+    before_implicit = len(ratings)
+    ratings = ratings[ratings["rating"] >= POSITIVE_THRESHOLD].copy()
+    logger.info("Implicit conversion (rating >= %d): %d -> %d ratings (%.1f%% kept)",
+                POSITIVE_THRESHOLD, before_implicit, len(ratings),
+                100 * len(ratings) / before_implicit if before_implicit else 0)
+
+    # 4. Item k-core filtering per domain (remove items with too few interactions)
     movie_ratings = ratings[ratings["domain"] == "movie"].copy()
     game_ratings = ratings[ratings["domain"] == "game"].copy()
 
