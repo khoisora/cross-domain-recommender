@@ -54,7 +54,7 @@ K = 10  # all metrics @10 only — no @5, @20, @50
 # ---------------------------------------------------------------------------
 _DOMAIN_PAIR_PATHS: dict[str, tuple[Path, Path]] = {
     "movie_game": (
-        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_sparse_loose",
+        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_overlap",
         PROJECT_ROOT / "artifacts",
     ),
 }
@@ -587,20 +587,90 @@ def load_user_split_cold_start_split(
         rng2 = np.random.RandomState(seed)
         eval_user_indices = sorted(rng2.choice(eval_user_indices, max_eval_users, replace=False))
 
-    # Subgroups by movie richness
+    # Item popularity: warm-user game train interaction counts
+    _game_pop_raw = game_train.groupby("item_id").size().to_dict()
+    game_item_pop: dict[int, int] = {
+        item_to_idx[normalize_id(iid)]: int(cnt)
+        for iid, cnt in _game_pop_raw.items()
+        if normalize_id(iid) in item_to_idx
+    }
+    median_game_pop = float(np.median(list(game_item_pop.values()))) if game_item_pop else 1.0
+
+    # Movie popularity: all movie interaction counts
+    _movie_pop_raw = movie_df.groupby("item_id").size().to_dict()
+    movie_item_pop: dict[int, int] = {
+        item_to_idx[normalize_id(iid)]: int(cnt)
+        for iid, cnt in _movie_pop_raw.items()
+        if normalize_id(iid) in item_to_idx
+    }
+    median_movie_pop = float(np.median(list(movie_item_pop.values()))) if movie_item_pop else 1.0
+
+    # Per cold-user movie items (for unpopular-concentration check)
+    cold_user_movie_items: dict[str, set[int]] = {}
+    for _uid_raw, _grp in movie_df[movie_df["user_id"].isin(cold_ids)].groupby("user_id"):
+        _uid_norm = normalize_id(_uid_raw)
+        cold_user_movie_items[_uid_norm] = {
+            item_to_idx[normalize_id(iid)]
+            for iid in _grp["item_id"]
+            if normalize_id(iid) in item_to_idx
+        }
+
+    def _movie_unpopular_concentrated(uid_norm: str) -> bool:
+        """True if majority of user's movie items are ≤ median popularity."""
+        items = cold_user_movie_items.get(uid_norm, set())
+        if not items:
+            return False
+        unpop = sum(1 for i in items if movie_item_pop.get(i, 0) <= median_movie_pop)
+        return unpop > len(items) / 2
+
+    eval_set = set(eval_user_indices)
     cold_movie_counts = {normalize_id(uid): cnt for uid, cnt in movie_counts.items()
                          if uid in cold_ids}
-    cs_low, cs_med, cs_rich = [], [], []
-    for raw_uid, cnt in cold_movie_counts.items():
+
+    # Subgroups by movie richness + item popularity
+    subgroups: dict[str, list[int]] = {
+        "cs_low_movies": [],      # cold, < 15 movies
+        "cs_med_movies": [],      # cold, 15-49 movies
+        "cs_rich_movies": [],     # cold, >= 50 movies
+        # Unpopular-focused subgroups (key for L7 SBERT-CDR analysis)
+        "one_shot_unpopular_target_user": [],   # test game is unpopular (≤ median pop)
+        "one_shot_popular_target_user": [],     # test game is popular (> median pop)
+        "high_source_unpopular_low_target": [], # >=15 movies, majority niche movies
+        "high_source_popular_low_target": [],   # >=15 movies, mostly popular movies
+    }
+
+    for raw_uid, mc in cold_movie_counts.items():
         uidx = user_to_idx.get(raw_uid)
-        if uidx is None or uidx not in set(eval_user_indices):
+        if uidx is None or uidx not in eval_set:
             continue
-        if cnt < 15:
-            cs_low.append(uidx)
-        elif cnt < 50:
-            cs_med.append(uidx)
+
+        # Movie-richness buckets
+        if mc < 15:
+            subgroups["cs_low_movies"].append(uidx)
+        elif mc < 50:
+            subgroups["cs_med_movies"].append(uidx)
         else:
-            cs_rich.append(uidx)
+            subgroups["cs_rich_movies"].append(uidx)
+
+        # Is this user's test game item unpopular?
+        test_items = game_test_relevant.get(uidx, set())
+        test_iid = next(iter(test_items), None)
+        if test_iid is not None:
+            is_unpopular_target = game_item_pop.get(test_iid, 0) <= median_game_pop
+            if is_unpopular_target:
+                subgroups["one_shot_unpopular_target_user"].append(uidx)
+            else:
+                subgroups["one_shot_popular_target_user"].append(uidx)
+
+        # High-source, low-target (all cold users have 0 game train — "low_target" by def)
+        if mc >= 15:
+            if _movie_unpopular_concentrated(raw_uid):
+                subgroups["high_source_unpopular_low_target"].append(uidx)
+            else:
+                subgroups["high_source_popular_low_target"].append(uidx)
+
+    for sg_name, sg_uids in subgroups.items():
+        logger.info("  subgroup %-35s : %d users", sg_name, len(sg_uids))
 
     device = (
         "mps" if torch.backends.mps.is_available()
@@ -642,11 +712,7 @@ def load_user_split_cold_start_split(
         movie_val_relevant={},
         movie_train_seen={},
         eval_user_indices=eval_user_indices,
-        user_subgroups={
-            "cs_low_movies": cs_low,
-            "cs_med_movies": cs_med,
-            "cs_rich_movies": cs_rich,
-        },
+        user_subgroups=subgroups,
         target_domain=target_domain,
         domain_pair=domain_pair,
         device=device,
