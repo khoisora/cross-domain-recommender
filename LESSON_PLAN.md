@@ -438,9 +438,9 @@ NewCrossDomainRecommenders/
 
 ---
 
-## Lesson 2 — Single-domain graph beats CDR on the standard benchmark
+## Lesson 2 — Low overlap kills CDR: single-domain graph wins on mixed population
 
-**Claim**: On standard LLO with a mixed user population, a well-tuned single-domain graph model (LightGCN) outperforms all collaborative CDR models.
+**Claim**: On a naturally mixed population with very low user overlap (~5.8%), CDR models underperform single-domain models. Cross-domain transfer needs shared users to learn from — without them, mapping functions train on noise.
 
 **Data**: `movie_game` (same as Lesson 1: no user k-core, ~1M randomly sampled users). **Split**: Standard LLO on games.
 
@@ -457,35 +457,21 @@ All CDR scripts use `--domain-pair movie_game`.
 
 Include MF-BPR from Lesson 1 as carry-forward baseline (no re-port needed).
 
-**Report**: Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10. One table, all models + % gap vs LightGCN. **Plot**: `--lesson 2` → bar chart, all models, LightGCN highlighted as reference bar, annotated with dataset info.
+**Report**: Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10. One table, all models + % gap vs LightGCN. **Plot**: `--lesson 2` → bar chart, all models, LightGCN highlighted as reference bar, annotated with dataset info (including overlap %).
 
-**→ Lesson 3**: The Lesson 2 population mixes users with very different amounts of game history. Lesson 3 introduces the concept of an overlap cohort and adds cohort-filtering logic to `process_data.py`.
+**→ Lesson 3**: Lesson 2 shows CDR fails at 5.8% overlap. Lesson 3 filters to 100% overlap users and demonstrates that CDR scores recover — proving overlap % is the key variable.
 
 ---
 
-## Lesson 3 — Cohort definition: restricting to real overlap users
+## Lesson 3 — Overlap filtering rescues CDR: 100% overlap users
 
-**Claim**: Many users have signal in only one domain. The overlap cohort definition materially changes results — CDR and single-domain models must be compared on the same population.
+**Claim**: Filtering to 100% overlap users (active in both domains) dramatically improves CDR performance compared to the low-overlap Lesson 2 population. This proves overlap % is the key variable for cross-domain transfer.
 
-**Data**: **This lesson introduces cohort filtering logic to `process_data.py` for the first time.** Add a `--cohort` argument (or equivalent) that supports:
+**Data**: `movie_game` — filter to overlap users with ≥ 5 movie ratings AND ≥ 1 game rating (the "loose" overlap definition). This becomes the default dataset for Lesson 3 — no separate cohort variants, no strict filter. All users are guaranteed to have activity in both domains (100% overlap). **Split**: Standard LLO on games.
 
--   `default`: (same as Phase 0) k-core ≥ 10 both movies and games
--   `loose`: every user has ≥ 5 movie ratings AND ≥ 1 game rating (much wider overlap, many more users)
--   `strict`: every user has ≥ 10 movie ratings AND ≥ 5 game ratings (tighter, more balanced)
+**Models**: MF-BPR, NCF, LightGCN, CMF, EMCDR, PTUPCDR (all already ported from Lesson 2).
 
-Reference the cohort filtering logic in `ml/data/process_data.py` of the old repo — it lives there as the `transfer_loose` / `transfer_strict` build paths. Adapt it; do not copy blindly.
-
-Register the three variants in `_DOMAIN_PAIR_PATHS`:
-
--   `movie_game` → `processed/` (existing, k-core ≥ 10)
--   `movie_game_loose` → `processed_loose/` (new)
--   `movie_game_strict` → `processed_strict/` (new)
-
-Compare all three in one report.
-
-**Split**: Standard LLO on games. **Models**: MF-BPR, NCF, LightGCN, CMF, EMCDR, PTUPCDR (all already ported).
-
-**Report**: Three-column comparison table (Default [k≥10] | Loose [k≥5 movie, ≥1 game] | Strict [k≥10 movie, ≥5 game]), same four metrics. Include n_users and n_interactions as a header row so the cohort size changes are visible. **Plot**: `--lesson 3` → grouped bar chart, x-axis = cohort variant (3 groups), bars = models. Each group's annotation box shows the cohort filter condition and n_users so population differences are visually obvious.
+**Report**: Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10. Compare against Lesson 2 results — CDR models should show large score increases while single-domain models may stay flat or decline (fewer users, less game data). **Plot**: `--lesson 3` → bar chart with Lesson 2 vs Lesson 3 comparison, annotated with overlap % change (5.8% → 100%).
 
 **→ Lesson 4**: Lesson 3 controls who is in the data. Lesson 4 controls how much target-domain data those users have, stressing CDR toward the regime it was designed for.
 
@@ -502,7 +488,7 @@ Compare all three in one report.
 -   **Sparse-loose**: movies ≥ 10, games ≥ 1 → `movie_game_sparse_loose`
 -   **Sparse-strict**: movies ≥ 10, 1 ≤ games ≤ 3 → `movie_game_sparse_strict`
 
-These add an **additional constraint on game count** on top of the "loose" movie/game overlap definition. Reference the existing `processed_transfer_loose_filtered/` in the old repo to see how this was done previously. Register both in `_DOMAIN_PAIR_PATHS`.
+These add an **additional constraint on game count** on top of the overlap definition. Reference the existing `processed_transfer_loose_filtered/` in the old repo to see how this was done previously. Register both in `_DOMAIN_PAIR_PATHS`.
 
 **Split**: Standard LLO on games. **Models**: MF-BPR, NCF, LightGCN, CMF, EMCDR, PTUPCDR.
 
@@ -580,7 +566,7 @@ Register filtered variant as `movie_game_sparse_loose_filtered`. Reference `proc
 
 **Claim**: When all game interactions are hidden for a subset of users during training, CDR outperforms single-domain models by 2–5× on that subset. This justifies a routing rule: no game history → CDR path.
 
-**Data**: `movie_game_loose` (from Lesson 3). User split: 80% warm / 20% cold. **Split**: Port `load_user_split_cold_start_split()` from `ml/scripts/benchmarks/bench_user_split_coldstart.py` in the old repo → new `bench_user_split_coldstart.py`.
+**Data**: `movie_game` (from Lesson 3: overlap users, movies ≥ 5, games ≥ 1). User split: 80% warm / 20% cold. **Split**: Port `load_user_split_cold_start_split()` from `ml/scripts/benchmarks/bench_user_split_coldstart.py` in the old repo → new `bench_user_split_coldstart.py`.
 
 **Models — single-domain (expected to fail on cold users)**:
 
@@ -610,7 +596,7 @@ Register filtered variant as `movie_game_sparse_loose_filtered`. Reference `proc
 
 **Claim**: When collaborative CDR is noisy or user overlap is low, SBERT item embeddings can bridge movie and game content in a shared semantic space — particularly for unpopular target items.
 
-**Data**: `movie_game_loose` (or `movie_game_sparse_loose_filtered` from Lesson 5 if filtering helped). **Split**: Standard LLO on games.
+**Data**: `movie_game` (from Lesson 3, or `movie_game_sparse_loose_filtered` from Lesson 5 if filtering helped). **Split**: Standard LLO on games.
 
 **Models to port**:
 
