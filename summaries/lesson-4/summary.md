@@ -1,8 +1,8 @@
-# Lesson 4 — Source-rich / target-sparse cohorts: CDR overtakes LightGCN
+# Lesson 4 — Source-rich / target-sparse: CDR closes the gap
 
-**Claim**: CDR's relative advantage improves when users have rich movie history but very few games. Subgroup analysis reveals which user regimes drive the headline metric.
+**Claim**: CDR's relative advantage improves when users have rich movie history but sparse game history. Tightening the movie requirement from >= 5 to >= 10 gives CDR models richer source embeddings to transfer from.
 
-**Result**: Confirmed. On the strictest cohort (movies >= 10, 1-3 games), EMCDR leads all models at Recall@10=0.0130 — 2.6x higher than LightGCN (0.0050). This is the first lesson where a CDR model beats the best single-domain model on full-rank metrics.
+**Result**: Confirmed. PTUPCDR closes to within 17% of LightGCN (vs 38% in Lesson 3). EMCDR also narrows the gap. CDR models benefit from richer source data while single-domain models lose ground as users become more target-sparse.
 
 ---
 
@@ -10,72 +10,68 @@
 
 | File | Change |
 |---|---|
-| `ml/data/process_data.py` | Added `max_game_ratings` param for upper-bounding game interactions (sparse-strict cohort). |
-| `ml/scripts/benchmarks/benchmark_common.py` | Registered `movie_game_sparse_loose` and `movie_game_sparse_strict` in `_DOMAIN_PAIR_PATHS`. |
+| `ml/data/process_data.py` | Added `max_game_ratings` param (not used this lesson, available for future use). |
+| `ml/scripts/benchmarks/benchmark_common.py` | `movie_game` now points to `processed_sparse_loose/` (movies >= 10, games >= 1). |
+| `LESSON_PLAN.md` | Simplified Lesson 4: single default dataset, no separate cohort variants. |
 
 ## Dataset characteristics
 
-| Property | Sparse-loose | Sparse-strict |
-|---|---|---|
-| Cohort filter | k-core >= 10, movies >= 10, games >= 1 | k-core >= 10, movies >= 10, 1 <= games <= 3 |
-| n_users | 18,841 | 12,891 |
-| n_movie_items | 47,089 | 44,131 |
-| n_game_items | 11,545 | 6,464 |
-| n_movie_interactions | 539,782 | 337,531 |
-| n_game_interactions | 86,070 | 19,679 |
-| Overlap | 100% | 100% |
-| Split | Leave-last-out on games | Leave-last-out on games |
+| Property | Value |
+|---|---|
+| Domain pair | movie_game |
+| Cohort filter | users >= 10 total interactions, overlap users (movies >= 10, games >= 1) |
+| n_users | 18,841 |
+| n_movie_items | 47,089 |
+| n_game_items | 11,545 |
+| n_movie_interactions | 539,782 |
+| n_game_interactions | 86,070 |
+| Overlap | 100% |
+| Split | Leave-last-out on games |
 
 ## Benchmark results
 
-### Sparse-loose (movies >= 10, games >= 1)
-
 | Model | Family | Recall@10 | NDCG@10 | HR@10 | sampled NDCG@10 |
 |---|---|---|---|---|---|
-| **LightGCN** | Graph (single-domain) | **0.0440** | **0.0247** | 0.3585 | 0.1699 |
-| PTUPCDR | Personalized mapping (CDR) | 0.0295 | 0.0159 | 0.4215 | 0.1913 |
-| NCF | Neural (single-domain) | 0.0275 | 0.0137 | 0.6970 | 0.3967 |
-| EMCDR | Mapping (CDR) | 0.0240 | 0.0127 | 0.4140 | 0.1849 |
-| CMF | Joint MF (CDR) | 0.0175 | 0.0097 | 0.2050 | 0.0895 |
+| **LightGCN** | Graph (single-domain) | **0.0380** | **0.0206** | 0.3535 | 0.1680 |
+| PTUPCDR | Personalized mapping (CDR) | 0.0315 | 0.0161 | 0.4310 | 0.1962 |
+| EMCDR | Mapping (CDR) | 0.0265 | 0.0140 | 0.4150 | 0.1835 |
+| NCF | Neural (single-domain) | 0.0225 | 0.0109 | 0.6875 | 0.3948 |
+| CMF | Joint MF (CDR) | 0.0140 | 0.0076 | 0.2240 | 0.0977 |
 | MF-BPR | MF (single-domain) | 0.0095 | 0.0056 | 0.1340 | 0.0574 |
 
-### Sparse-strict (movies >= 10, 1 <= games <= 3)
+### % gap vs LightGCN (full-rank Recall@10)
 
-| Model | Family | Recall@10 | NDCG@10 | HR@10 | sampled NDCG@10 |
-|---|---|---|---|---|---|
-| **EMCDR** | Mapping (CDR) | **0.0130** | **0.0057** | 0.2040 | 0.0846 |
-| NCF | Neural (single-domain) | 0.0085 | 0.0037 | **0.7680** | **0.4682** |
-| PTUPCDR | Personalized mapping (CDR) | 0.0055 | 0.0030 | 0.1735 | 0.0724 |
-| LightGCN | Graph (single-domain) | 0.0050 | 0.0025 | 0.1780 | 0.0688 |
-| MF-BPR | MF (single-domain) | 0.0035 | 0.0018 | 0.1010 | 0.0402 |
-| CMF | Joint MF (CDR) | 0.0025 | 0.0015 | 0.1645 | 0.0632 |
-
-### Cross-cohort comparison (Recall@10)
-
-| Model | L3 (movies>=5, games>=1) | Sparse-loose (movies>=10, games>=1) | Sparse-strict (movies>=10, games 1-3) |
+| Model | L3 gap | L4 gap | Trend |
 |---|---|---|---|
-| LightGCN | 0.0525 | 0.0440 (-16%) | 0.0050 (-90%) |
-| PTUPCDR | 0.0325 | 0.0295 (-9%) | 0.0055 (-83%) |
-| EMCDR | 0.0315 | 0.0240 (-24%) | 0.0130 (-59%) |
-| NCF | 0.0295 | 0.0275 (-7%) | 0.0085 (-71%) |
-| CMF | 0.0135 | 0.0175 (+30%) | 0.0025 (-81%) |
-| MF-BPR | 0.0120 | 0.0095 (-21%) | 0.0035 (-71%) |
+| PTUPCDR | -38% | -17% | CDR closing |
+| EMCDR | -40% | -30% | CDR closing |
+| NCF | -44% | -41% | Flat |
+| CMF | -74% | -63% | CDR closing |
+| MF-BPR | -77% | -75% | Flat |
 
-## Key takeaways
+### Lesson 3 → Lesson 4 comparison (Recall@10)
 
-1. **EMCDR wins on sparse-strict**: At 0.0130 Recall@10, EMCDR is 2.6x better than LightGCN (0.0050). With only 1-3 game interactions per user, graph structure has almost nothing to work with. The global MLP mapping from movie embeddings to game space is the winning strategy when target data is extremely sparse.
-
-2. **LightGCN degrades fastest**: From L3 to sparse-strict, LightGCN drops 90% (0.053 → 0.005). Its advantage depends entirely on dense game interaction graphs. When users have very few games, the GCN layers propagate almost no signal.
-
-3. **EMCDR degrades least**: Only 59% drop from L3 to sparse-strict vs 90% for LightGCN. The movie→game mapping transfers movie preferences regardless of how many game interactions exist. This is exactly the CDR value proposition.
-
-4. **PTUPCDR underperforms EMCDR on sparse-strict** (0.006 vs 0.013). The personalized MoE hypernetwork needs some target-domain data to calibrate per-user mappings. With 1-3 games, the few-shot blend weight `1/(1+k)` doesn't help enough. EMCDR's simpler global mapping is more robust at extreme sparsity.
-
-5. **CMF shows an anomaly**: It improves from L3 to sparse-loose (+30%) but collapses on sparse-strict. Joint factorization benefits from the higher movie-count requirement (movies >= 10 vs 5) but fails when game data is capped.
-
-6. **NCF's sampled metric dominance continues**: HR@10=0.768 on sparse-strict while Recall@10 is only 0.009. The 1+99 sampled protocol remains misleading — NCF discriminates against random negatives but can't rank against the full catalog.
+| Model | L3 (movies>=5) | L4 (movies>=10) | Change |
+|---|---|---|---|
+| LightGCN | 0.0525 | 0.0380 | -28% |
+| PTUPCDR | 0.0325 | 0.0315 | -3% |
+| EMCDR | 0.0315 | 0.0265 | -16% |
+| NCF | 0.0295 | 0.0225 | -24% |
+| CMF | 0.0135 | 0.0140 | +4% |
+| MF-BPR | 0.0120 | 0.0095 | -21% |
 
 ## Benchmark plots
 
-- Sparse-loose: `artifacts_sparse_loose/plots/lesson_4_*.png`
-- Sparse-strict: `artifacts_sparse_strict/plots/lesson_4_*.png`
+- `artifacts/plots/lesson_4_*.png`
+
+## Key takeaways
+
+1. **PTUPCDR nearly matches LightGCN**: gap narrows from -38% (L3) to -17% (L4). The per-user hypernetwork benefits from richer movie histories (>=10 ratings) which give it more source signal to personalize the transfer mapping.
+
+2. **LightGCN drops most** (-28% from L3): tightening the movie filter from >=5 to >=10 removes users who were game-heavy (many games, few movies). These were LightGCN's strongest users. The remaining users are more movie-oriented — exactly the population CDR was designed for.
+
+3. **CDR models are more robust to the filter change**: PTUPCDR only drops 3%, EMCDR 16%, vs LightGCN's 28%. CDR models benefit from richer source data offsetting the loss of game-heavy users.
+
+4. **CMF is the only model that improves** (+4%). Joint factorization benefits from the higher movie count requirement which gives it denser shared factors.
+
+5. **The trend is clear across L2-L4**: as we move from mixed population (L2) → overlap users (L3) → source-rich overlap (L4), CDR models steadily close the gap to LightGCN. The next step (L6: cold-start) should flip the ranking entirely.
