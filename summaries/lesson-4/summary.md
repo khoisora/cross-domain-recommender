@@ -6,6 +6,18 @@
 
 ---
 
+## What changed vs Lesson 3
+
+| Variable | Lesson 3 | Lesson 4 | Why |
+|---|---|---|---|
+| **Movie minimum** | >= 5 ratings | >= 10 ratings | Ensure richer source embeddings for CDR transfer |
+| **n_users** | 26,487 | 18,841 | Tighter movie filter removes ~7.6K game-heavy users |
+| **Game interactions** | 129K | 86K (-33%) | Removed users had rich game histories |
+
+**Kept constant**: User k-core (>=10), game minimum (>=1), 100% overlap, item k-core, positive threshold (>=4), LLO split on games, metrics @10, all 6 models, evaluation protocol.
+
+**Key logic**: Raising movie floor from 5→10 removes users who were movie-poor/game-rich. This hurts single-domain models (less game data) but helps CDR models (richer source embeddings). The experiment isolates source-richness as a variable.
+
 ## File changes
 
 | File | Change |

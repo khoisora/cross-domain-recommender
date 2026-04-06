@@ -18,6 +18,16 @@
 
 ---
 
+## What changed vs Lesson 1
+
+| Variable | Lesson 1 | Lesson 2 | Why |
+|---|---|---|---|
+| **User filter** | k-core >= 10 | No k-core, sampled 100K | Test natural low-overlap population |
+| **Overlap %** | 32% (not controlled) | 5.8% (natural ratio) | Demonstrate CDR failure at low overlap |
+| **Models** | MF-Explicit, MF-BPR | + LightGCN, NCF, CMF, EMCDR, PTUPCDR | Full model portfolio for comparison |
+
+**Kept constant**: Item k-core (movies>=20, games>=10), positive threshold (>=4), LLO split on games, metrics @10.
+
 ## File changes
 
 | File | Change |

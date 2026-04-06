@@ -663,8 +663,9 @@ summaries/
 
 Each `summary.md` must include:
 
-1.  **File changes** — list of files added/modified with a one-line description of what changed and why.
-2.  **Dataset characteristics** — table showing cohort filter, n_users, n_items (per domain), n_interactions (per domain), overlap users, sparsity.
-3.  **Benchmark results** — table(s) of Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10 across all models. Include subgroup breakdowns if applicable.
-4.  **Benchmark plots** — embed or reference the plot PNGs generated for this lesson (relative path to `artifacts/`).
-5.  **Key takeaways** — what was learned, what surprised, what matched or contradicted the lesson's original claim/plan. Be honest about null results.
+1.  **What changed vs previous lesson** — a short section at the top listing (a) what variables changed from the previous lesson and why, and (b) what was kept constant. This makes the experimental design legible across lessons.
+2.  **File changes** — list of files added/modified with a one-line description of what changed and why.
+3.  **Dataset characteristics** — table showing cohort filter, n_users, n_items (per domain), n_interactions (per domain), overlap users, sparsity.
+4.  **Benchmark results** — table(s) of Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10 across all models. Include subgroup breakdowns if applicable.
+5.  **Benchmark plots** — embed or reference the plot PNGs generated for this lesson (relative path to `artifacts/`).
+6.  **Key takeaways** — what was learned, what surprised, what matched or contradicted the lesson's original claim/plan. Be honest about null results.
