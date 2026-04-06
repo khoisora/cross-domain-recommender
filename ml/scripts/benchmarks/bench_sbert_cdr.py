@@ -1,15 +1,15 @@
-"""SBERT-CDR — content-based cross-domain recommender (cold-start evaluation).
+"""SBERT-CDR — content-based cross-domain recommender (LLO evaluation).
 
 User profile strategy (cross-domain):
-  - cold users (no game train): mean of movie embeddings → CDR transfer
-  - overlap/warm users: weighted blend of movie + game profiles
+  - source-only (no game train): mean of movie embeddings → CDR transfer
+  - overlap users: weighted blend of movie + game profiles
+  - target-only: mean of game embeddings (same as plain SBERT)
 
-Evaluated on the same cold-start user split as Lesson 6 (80/20 warm/cold).
-Cold users have zero game training history — only movie data available.
-SBERT-CDR bridges the gap using shared semantic space (movies + games).
-
-Key finding: SBERT-CDR wins on one_shot_unpopular_target_user subgroup
-where collaborative CDR (PTUPCDR) is blind to niche long-tail items.
+Key subgroup finding (L7):
+  one_shot_unpopular_target_user — 1 game + unpopular test item:
+    SBERT/SBERT-CDR win 11× over LightGCN via semantic genre consistency
+  high_source_unpopular_low_target — niche movie taste, few games:
+    movie semantic profile finds niche games collab models can't retrieve
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ if _root not in sys.path:
 import pandas as pd
 
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, evaluate_cross_domain,
-    load_user_split_cold_start_split, save_result, setup_logging,
+    add_common_args, configure_benchmark, evaluate_cross_domain,
+    load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
     POSITIVE_THRESHOLD, _DOMAIN_PAIR_PATHS,
 )
 from ml.models.sbert_model import SBERTModel
@@ -38,18 +38,20 @@ ALGO = "SBERT-CDR"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=f"{ALGO} cold-start benchmark")
+    parser = argparse.ArgumentParser(description=f"{ALGO} benchmark")
     add_common_args(parser)
     parser.add_argument("--source-weight", type=float, default=0.5,
                         help="Weight for movie profile in overlap-user blend (default=0.5)")
     args = parser.parse_args()
 
     setup_logging()
+    configure_benchmark(args.domain_pair)
 
-    data = load_user_split_cold_start_split(
+    data = load_cross_domain_split(
         domain_pair=args.domain_pair, target_domain=args.target,
+        single_domain_item_space=False,
     )
-    data.device = "cpu"
+    verify_no_leakage(data)
 
     data_dir = _DOMAIN_PAIR_PATHS[args.domain_pair][0]
     movies_df = pd.read_parquet(data_dir / "movies.parquet")
@@ -59,7 +61,6 @@ def main() -> None:
     t0 = time.time()
     model = SBERTModel()
     model.encode_items(items_df, data.item_to_idx)
-    # cold users contribute only movies to cross_train → profile = mean of movie embeddings
     model.compute_cross_domain_user_embeddings(
         data.cross_train, data.user_to_idx, data.item_to_idx,
         source_domain="movie", target_domain="game",
@@ -73,7 +74,7 @@ def main() -> None:
     save_result(
         algo=ALGO, metrics=metrics, dataset_info=data.dataset_info,
         lesson=args.lesson, train_time=train_time,
-        description=f"SBERT-CDR all-MiniLM-L6-v2, source_weight={args.source_weight}, cold-start eval",
+        description=f"SBERT-CDR all-MiniLM-L6-v2, source_weight={args.source_weight}, LLO eval",
     )
 
 
