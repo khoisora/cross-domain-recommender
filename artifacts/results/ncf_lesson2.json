@@ -1,0 +1,23 @@
+{
+  "model": "NCF",
+  "lesson": 2,
+  "description": "RecBole NeuMF, emb=64, epochs=50, lr=0.001, reg=0.001",
+  "time_completed": "2026-04-06T15:25:12.193825",
+  "train_time_s": 364.0473129749298,
+  "dataset_info": {
+    "domain_pair": "movie_game",
+    "cohort_filter": "no user k-core filter, sampled to ~1000K users",
+    "n_users": 221524,
+    "n_movie_interactions": 1804737,
+    "n_game_interactions": 337803,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.012,
+  "ndcg@10": 0.006930658939523243,
+  "subgroups": {},
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.888,
+  "sampled_ndcg@10": 0.5409610559262271,
+  "sampled_subgroups": {},
+  "n_sampled_users": 2000
+}

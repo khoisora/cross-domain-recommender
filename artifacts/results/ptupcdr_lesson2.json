@@ -1,0 +1,23 @@
+{
+  "model": "PTUPCDR",
+  "lesson": 2,
+  "description": "PTUPCDR (EMCDR backbone), emb=64, SOURCE:20+TARGET:20, meta=30, 8 experts",
+  "time_completed": "2026-04-06T15:48:32.225914",
+  "train_time_s": 1756.4507188796997,
+  "dataset_info": {
+    "domain_pair": "movie_game",
+    "cohort_filter": "no user k-core filter, sampled to ~1000K users",
+    "n_users": 1000000,
+    "n_movie_interactions": 1804737,
+    "n_game_interactions": 337803,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.0085,
+  "ndcg@10": 0.005383934044527903,
+  "subgroups": {},
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.885,
+  "sampled_ndcg@10": 0.5397281361831416,
+  "sampled_subgroups": {},
+  "n_sampled_users": 2000
+}

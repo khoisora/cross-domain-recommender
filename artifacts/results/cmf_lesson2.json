@@ -1,0 +1,23 @@
+{
+  "model": "CMF",
+  "lesson": 2,
+  "description": "RecBole-CDR CMF, emb=96, epochs=40, lr=0.01, alpha=0.3",
+  "time_completed": "2026-04-06T15:23:36.580541",
+  "train_time_s": 232.7094268798828,
+  "dataset_info": {
+    "domain_pair": "movie_game",
+    "cohort_filter": "no user k-core filter, sampled to ~1000K users",
+    "n_users": 1000000,
+    "n_movie_interactions": 1804737,
+    "n_game_interactions": 337803,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.005,
+  "ndcg@10": 0.0022493407858688273,
+  "subgroups": {},
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.683,
+  "sampled_ndcg@10": 0.420254915274381,
+  "sampled_subgroups": {},
+  "n_sampled_users": 2000
+}

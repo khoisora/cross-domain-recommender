@@ -338,14 +338,12 @@ def build_movie_game_dataset(
     movie_ratings = ratings[ratings["domain"] == "movie"].copy()
     game_ratings = ratings[ratings["domain"] == "game"].copy()
 
-    # Movie items: keep only items with >= 20 interactions
     movie_item_counts = movie_ratings["item_id"].value_counts()
     valid_movie_items = set(movie_item_counts[movie_item_counts >= MOVIE_MIN_ITEM_INTERACTIONS].index)
     before_m = len(movie_ratings)
     movie_ratings = movie_ratings[movie_ratings["item_id"].isin(valid_movie_items)].copy()
     logger.info("Movie item k-core (>=%d): %d -> %d ratings", MOVIE_MIN_ITEM_INTERACTIONS, before_m, len(movie_ratings))
 
-    # Game items: keep only items with >= 10 interactions
     game_item_counts = game_ratings["item_id"].value_counts()
     valid_game_items = set(game_item_counts[game_item_counts >= GAME_MIN_ITEM_INTERACTIONS].index)
     before_g = len(game_ratings)
@@ -400,7 +398,7 @@ def build_movie_game_dataset(
     logger.info("  game:  %d ratings, %d items, %d users", n_games, game_ratings["item_id"].nunique(), len(game_users))
     logger.info("  overlap users: %d (%.1f%%)", len(overlap_users), overlap_pct)
 
-    # 5. Save parquet files
+    # 6. Save parquet files
     movies_df = items[items["domain"] == "movie"].copy()
     games_df = items[items["domain"] == "game"].copy()
 

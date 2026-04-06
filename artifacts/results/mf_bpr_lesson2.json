@@ -1,0 +1,23 @@
+{
+  "model": "MF_BPR",
+  "lesson": 2,
+  "description": "BPR pairwise, emb=64, epochs=60, lr=0.005, reg=0.01",
+  "time_completed": "2026-04-06T15:19:13.606672",
+  "train_time_s": 13.77911901473999,
+  "dataset_info": {
+    "domain_pair": "movie_game",
+    "cohort_filter": "no user k-core filter, sampled to ~1000K users",
+    "n_users": 221524,
+    "n_movie_interactions": 1804737,
+    "n_game_interactions": 337803,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.017,
+  "ndcg@10": 0.009307535067900562,
+  "subgroups": {},
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.171,
+  "sampled_ndcg@10": 0.07833919368560921,
+  "sampled_subgroups": {},
+  "n_sampled_users": 2000
+}

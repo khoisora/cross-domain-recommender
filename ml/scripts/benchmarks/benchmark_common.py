@@ -329,18 +329,19 @@ def load_cross_domain_split(
     else:
         cross_train = pd.concat([movie_train, game_df], ignore_index=True)
 
-    # Build unified user/item ID maps
-    all_users = sorted({normalize_id(u) for u in ratings["user_id"].unique()})
-    user_to_idx = {u: i for i, u in enumerate(all_users)}
-
+    # Build user/item ID maps
     game_item_ids = {normalize_id(x) for x in game_df["item_id"].unique()}
     movie_item_ids = {normalize_id(x) for x in movie_df["item_id"].unique()}
 
     if single_domain_item_space:
         # Single-domain models (MF-BPR, LightGCN, NCF) only learn embeddings for
-        # target-domain items. This keeps the embedding table smaller and avoids
-        # wasting capacity on source items the model can't use.
-        # CDR models must NOT use this — they need a unified item space.
+        # target-domain users and items. Keeping the ID space compact avoids
+        # wasting embedding capacity on source-only users/items.
+        # CDR models must NOT use this — they need a unified user/item space.
+        target_df = game_df if target_domain == "game" else movie_df
+        all_users = sorted({normalize_id(u) for u in target_df["user_id"].unique()})
+        user_to_idx = {u: i for i, u in enumerate(all_users)}
+
         target_ids = game_item_ids if target_domain == "game" else movie_item_ids
         all_items = sorted(target_ids)
         item_to_idx = {it: i for i, it in enumerate(all_items)}
@@ -348,6 +349,8 @@ def load_cross_domain_split(
         game_item_indices = set(range(len(all_items))) if target_domain == "game" else set()
         movie_item_indices = set(range(len(all_items))) if target_domain == "movie" else set()
     else:
+        all_users = sorted({normalize_id(u) for u in ratings["user_id"].unique()})
+        user_to_idx = {u: i for i, u in enumerate(all_users)}
         all_items = sorted({normalize_id(it) for it in ratings["item_id"].unique()})
         item_to_idx = {it: i for i, it in enumerate(all_items)}
         idx_to_item = {i: it for it, i in item_to_idx.items()}
