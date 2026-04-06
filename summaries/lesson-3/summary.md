@@ -18,6 +18,16 @@
 
 ---
 
+## What changed vs Lesson 2
+
+| Variable | Lesson 2 | Lesson 3 | Why |
+|---|---|---|---|
+| **User k-core** | None | >= 10 total interactions | Restore data quality baseline |
+| **Overlap filter** | None (natural 5.8%) | movies >= 5, games >= 1 (100%) | Isolate overlap % as the key variable for CDR |
+| **User sampling** | 100K random sample | No sampling (26K natural) | All overlap users kept |
+
+**Kept constant**: Item k-core (movies>=20, games>=10), positive threshold (>=4), LLO split on games, metrics @10, all 6 models, evaluation protocol.
+
 ## File changes
 
 | File | Change |

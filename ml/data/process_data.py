@@ -263,6 +263,7 @@ def build_movie_game_dataset(
     sample_users: int | None = None,
     min_movie_ratings: int = 0,
     min_game_ratings: int = 0,
+    max_game_ratings: int = 0,
     output_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Build the movie_game processed dataset.
@@ -377,12 +378,18 @@ def build_movie_game_dataset(
         game_per_user = game_r.groupby("user_id").size()
         valid_movie_users = set(movie_per_user[movie_per_user >= min_movie_ratings].index)
         valid_game_users = set(game_per_user[game_per_user >= min_game_ratings].index)
+        if max_game_ratings > 0:
+            capped_game_users = set(game_per_user[game_per_user <= max_game_ratings].index)
+            valid_game_users &= capped_game_users
         overlap_valid = valid_movie_users & valid_game_users
         before_overlap = filtered_ratings["user_id"].nunique()
         filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(overlap_valid)].copy()
+        filter_desc = f"movies>={min_movie_ratings}, games>={min_game_ratings}"
+        if max_game_ratings > 0:
+            filter_desc += f", games<={max_game_ratings}"
         logger.info(
-            "Overlap filter (movies>=%d, games>=%d): %d -> %d users",
-            min_movie_ratings, min_game_ratings, before_overlap, filtered_ratings["user_id"].nunique(),
+            "Overlap filter (%s): %d -> %d users",
+            filter_desc, before_overlap, filtered_ratings["user_id"].nunique(),
         )
 
     # 6. Random user sampling (optional)
@@ -436,7 +443,11 @@ def build_movie_game_dataset(
     else:
         cohort_parts.append("no user k-core filter")
     if min_movie_ratings > 0 or min_game_ratings > 0:
-        cohort_parts.append(f"overlap users (movies >= {min_movie_ratings}, games >= {min_game_ratings})")
+        overlap_desc = f"overlap users (movies >= {min_movie_ratings}, games >= {min_game_ratings}"
+        if max_game_ratings > 0:
+            overlap_desc += f", games <= {max_game_ratings}"
+        overlap_desc += ")"
+        cohort_parts.append(overlap_desc)
     if sample_users:
         cohort_parts.append(f"sampled to ~{sample_users // 1000}K users")
     cohort_filter = ", ".join(cohort_parts)
@@ -485,6 +496,8 @@ if __name__ == "__main__":
                         help="Min movie ratings per user for overlap filter (0 to skip)")
     parser.add_argument("--min-game-ratings", type=int, default=0,
                         help="Min game ratings per user for overlap filter (0 to skip)")
+    parser.add_argument("--max-game-ratings", type=int, default=0,
+                        help="Max game ratings per user (0 = no cap)")
     parser.add_argument("--output-dir", type=str, default=None,
                         help="Custom output directory (default: processed/)")
     args = parser.parse_args()
@@ -495,6 +508,7 @@ if __name__ == "__main__":
         sample_users=args.sample_users,
         min_movie_ratings=args.min_movie_ratings,
         min_game_ratings=args.min_game_ratings,
+        max_game_ratings=args.max_game_ratings,
         output_dir=Path(args.output_dir) if args.output_dir else None,
     )
     logger.info("Done. %d users, %d ratings", metadata["total_users"], metadata["total_ratings"])

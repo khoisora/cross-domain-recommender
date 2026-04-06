@@ -1,0 +1,65 @@
+{
+  "model": "NCF",
+  "lesson": 4,
+  "description": "RecBole NeuMF, emb=64, epochs=50, lr=0.001, reg=0.001",
+  "time_completed": "2026-04-06T10:05:24.402235",
+  "train_time_s": 10.046828985214233,
+  "dataset_info": {
+    "domain_pair": "movie_game_sparse_strict",
+    "cohort_filter": "users >= 10 total interactions, overlap users (movies >= 10, games >= 1, games <= 3)",
+    "n_users": 12891,
+    "n_movie_interactions": 337531,
+    "n_game_interactions": 19679,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.0085,
+  "ndcg@10": 0.003668673828259913,
+  "subgroups": {
+    "super_cold_users": {
+      "recall@10": 0.0008123476848090983,
+      "ndcg@10": 0.0003142589823188803
+    },
+    "one_shot_target_user": {
+      "recall@10": 0.026970954356846474,
+      "ndcg@10": 0.011036442107290097
+    },
+    "one_shot_unpopular_target_user": {
+      "recall@10": 0.010452961672473868,
+      "ndcg@10": 0.005682682068193233
+    },
+    "high_source_low_target": {
+      "recall@10": 0.009202453987730062,
+      "ndcg@10": 0.0036647296922686623
+    },
+    "high_source_unpopular_low_target": {
+      "recall@10": 0.006211180124223602,
+      "ndcg@10": 0.001959409172582166
+    }
+  },
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.768,
+  "sampled_ndcg@10": 0.46815954622360595,
+  "sampled_subgroups": {
+    "super_cold_users": {
+      "sampled_hr@10": 1.0,
+      "sampled_ndcg@10": 0.6309297535714576
+    },
+    "one_shot_target_user": {
+      "sampled_hr@10": 0.4605809128630705,
+      "sampled_ndcg@10": 0.2377501391306919
+    },
+    "one_shot_unpopular_target_user": {
+      "sampled_hr@10": 0.289198606271777,
+      "sampled_ndcg@10": 0.15696515240332384
+    },
+    "high_source_low_target": {
+      "sampled_hr@10": 0.8415132924335378,
+      "sampled_ndcg@10": 0.5137012163167023
+    },
+    "high_source_unpopular_low_target": {
+      "sampled_hr@10": 0.2919254658385093,
+      "sampled_ndcg@10": 0.15742851084607945
+    }
+  },
+  "n_sampled_users": 2000
+}

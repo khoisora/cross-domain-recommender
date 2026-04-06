@@ -1,0 +1,65 @@
+{
+  "model": "PTUPCDR",
+  "lesson": 4,
+  "description": "PTUPCDR (EMCDR backbone), emb=64, SOURCE:20+TARGET:20, meta=30, 8 experts",
+  "time_completed": "2026-04-06T10:15:37.245615",
+  "train_time_s": 163.63779306411743,
+  "dataset_info": {
+    "domain_pair": "movie_game_sparse_strict",
+    "cohort_filter": "users >= 10 total interactions, overlap users (movies >= 10, games >= 1, games <= 3)",
+    "n_users": 12891,
+    "n_movie_interactions": 337531,
+    "n_game_interactions": 19679,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.0055,
+  "ndcg@10": 0.0029684825732312612,
+  "subgroups": {
+    "super_cold_users": {
+      "recall@10": 0.00487408610885459,
+      "ndcg@10": 0.002968158901174773
+    },
+    "one_shot_target_user": {
+      "recall@10": 0.004149377593360996,
+      "ndcg@10": 0.0013161064916956732
+    },
+    "one_shot_unpopular_target_user": {
+      "recall@10": 0.010452961672473868,
+      "ndcg@10": 0.00574494149867269
+    },
+    "high_source_low_target": {
+      "recall@10": 0.006134969325153374,
+      "ndcg@10": 0.003054332250183517
+    },
+    "high_source_unpopular_low_target": {
+      "recall@10": 0.006211180124223602,
+      "ndcg@10": 0.006211180124223602
+    }
+  },
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.1735,
+  "sampled_ndcg@10": 0.07241110115507524,
+  "sampled_subgroups": {
+    "super_cold_users": {
+      "sampled_hr@10": 0.17871649065800163,
+      "sampled_ndcg@10": 0.074760317319045
+    },
+    "one_shot_target_user": {
+      "sampled_hr@10": 0.17012448132780084,
+      "sampled_ndcg@10": 0.06968732733922696
+    },
+    "one_shot_unpopular_target_user": {
+      "sampled_hr@10": 0.156794425087108,
+      "sampled_ndcg@10": 0.06690926798919401
+    },
+    "high_source_low_target": {
+      "sampled_hr@10": 0.1738241308793456,
+      "sampled_ndcg@10": 0.07134608430831695
+    },
+    "high_source_unpopular_low_target": {
+      "sampled_hr@10": 0.16149068322981366,
+      "sampled_ndcg@10": 0.06751687400510879
+    }
+  },
+  "n_sampled_users": 2000
+}

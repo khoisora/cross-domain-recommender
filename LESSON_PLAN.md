@@ -477,66 +477,17 @@ Include MF-BPR from Lesson 1 as carry-forward baseline (no re-port needed).
 
 ---
 
-## Lesson 4 — Source-rich / target-sparse cohorts + subgroup slices
+## Lesson 4 — Source-rich / target-sparse: CDR closes the gap
 
-**Claim**: CDR's relative advantage improves when users have rich movie history but very few games. Subgroup analysis reveals which user regimes drive the headline metric.
+**Claim**: CDR's relative advantage improves when users have rich movie history but sparse game history. Tightening the movie requirement from ≥ 5 to ≥ 10 gives CDR models richer source embeddings to transfer from.
 
 **New in this lesson**: Introduce subgroup analysis in `benchmark_common.py`. Subgroup logic (cold-start groups, transfer groups, balance groups) is added to `load_cross_domain_split()` here — it does not exist in L1–L3.
 
-**Data**: Extend `process_data.py` with two new target-sparse cohort variants (build on top of the `loose` cohort definition from Lesson 3):
+**Data**: `movie_game` — k-core ≥ 10 total interactions, then overlap filter: movies ≥ 10, games ≥ 1. This is the default dataset for Lesson 4 — no separate cohort variants. Stored in `processed_sparse_loose/`. **Split**: Standard LLO on games.
 
--   **Sparse-loose**: movies ≥ 10, games ≥ 1 → `movie_game_sparse_loose`
--   **Sparse-strict**: movies ≥ 10, 1 ≤ games ≤ 3 → `movie_game_sparse_strict`
+**Models**: MF-BPR, NCF, LightGCN, CMF, EMCDR, PTUPCDR (all already ported).
 
-These add an **additional constraint on game count** on top of the overlap definition. Reference the existing `processed_transfer_loose_filtered/` in the old repo to see how this was done previously. Register both in `_DOMAIN_PAIR_PATHS`.
-
-**Split**: Standard LLO on games. **Models**: MF-BPR, NCF, LightGCN, CMF, EMCDR, PTUPCDR.
-
-**Report**:
-
--   **Table A** — Recall@10 / NDCG@10 per cohort (Sparse-loose, Sparse-strict), one column comparing to Lesson 3 for context.
--   **Table B** — Subgroup breakdown. Subgroup definitions (port from `evaluate_cross_domain()` in old `benchmark_common.py`):
-
-Subgroup
-
-Definition
-
-`super_cold_users`
-
-0 games in train after LLO, ≥ 10 movies
-
-`one_shot_target_user`
-
-1 game in train, ≥ 10 movies, train game is popular
-
-`one_shot_unpopular_target_user`
-
-1 game in train, ≥ 10 movies, train game is unpopular
-
-`high_source_low_target`
-
-≤ 3 games total, ≥ 15 movies, popular train game
-
-`high_source_unpopular_low_target`
-
-≤ 3 games total, ≥ 15 movies, unpopular train game
-
-`movie_heavy`
-
-> 3 games total, movies > 2× games
-
-`game_heavy`
-
-> 3 games total, games > 2× movies
-
-`balanced`
-
-> 3 games total, neither 2× skew
-
-Reference `ml/scripts/benchmarks/benchmark_common.py` in the old repo for the exact subgroup logic. **Plot**: `--lesson 4` → two charts:
-
--   Chart A: grouped bars per cohort (Sparse-loose, Sparse-strict), bars = models, annotated with filter conditions + n_users.
--   Chart B: subgroup heatmap or grouped bar chart — x-axis = subgroup name, bars = models, with a small text note per subgroup showing its n_users. Skip subgroups with fewer than 10 users.
+**Report**: Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10. Compare against Lesson 3 results. **Plot**: `--lesson 4` → bar chart with Lesson 3 vs Lesson 4 comparison.
 
 **→ Lesson 5**: Lessons 2–4 vary the user population. Lesson 5 varies the item catalog — filtering out weakly transferable items.
 
@@ -546,13 +497,13 @@ Reference `ml/scripts/benchmarks/benchmark_common.py` in the old repo for the ex
 
 **Claim**: Removing genre-mismatched and overlap-user-irrelevant items reduces embedding noise and should improve CDR relative to single-domain.
 
-**Data**: Start from Lesson 4 Sparse-loose cohort. Apply three interventions as ablations:
+**Data**: Start from Lesson 4 dataset (movies ≥ 10, games ≥ 1). Apply three interventions as ablations:
 
 1.  **Genre whitelist**: drop movie-only genres with no game analog (Documentary, Exercise DVDs, Musicals, Classical).
 2.  **Overlap-user item filter**: drop items never rated by any overlap user.
 3.  **Movie popularity filter (>=50 ratings)**: drop long-tail movie items with <50 ratings. Analysis shows this reduces items from 52K→10K, increases interaction matrix density 3.1×, while retaining 67% of overlap user movie interactions and 73% of overlap users with >=5 ratings. Denser source embeddings → cleaner transfer mapping for EMCDR/PTUPCDR.
 
-Register filtered variant as `movie_game_sparse_loose_filtered`. Reference `processed_transfer_loose_filtered/` in the old repo for the existing implementation in `process_data.py`.
+Register filtered variant as `movie_game_filtered`. Reference `processed_transfer_loose_filtered/` in the old repo for the existing implementation in `process_data.py`.
 
 **Split**: Standard LLO on games. **Models**: LightGCN, CMF, EMCDR, PTUPCDR.
 
@@ -596,7 +547,7 @@ Register filtered variant as `movie_game_sparse_loose_filtered`. Reference `proc
 
 **Claim**: When collaborative CDR is noisy or user overlap is low, SBERT item embeddings can bridge movie and game content in a shared semantic space — particularly for unpopular target items.
 
-**Data**: `movie_game` (from Lesson 3, or `movie_game_sparse_loose_filtered` from Lesson 5 if filtering helped). **Split**: Standard LLO on games.
+**Data**: `movie_game` (from Lesson 4, or `movie_game_filtered` from Lesson 5 if filtering helped). **Split**: Standard LLO on games.
 
 **Models to port**:
 
@@ -712,8 +663,9 @@ summaries/
 
 Each `summary.md` must include:
 
-1.  **File changes** — list of files added/modified with a one-line description of what changed and why.
-2.  **Dataset characteristics** — table showing cohort filter, n_users, n_items (per domain), n_interactions (per domain), overlap users, sparsity.
-3.  **Benchmark results** — table(s) of Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10 across all models. Include subgroup breakdowns if applicable.
-4.  **Benchmark plots** — embed or reference the plot PNGs generated for this lesson (relative path to `artifacts/`).
-5.  **Key takeaways** — what was learned, what surprised, what matched or contradicted the lesson's original claim/plan. Be honest about null results.
+1.  **What changed vs previous lesson** — a short section at the top listing (a) what variables changed from the previous lesson and why, and (b) what was kept constant. This makes the experimental design legible across lessons.
+2.  **File changes** — list of files added/modified with a one-line description of what changed and why.
+3.  **Dataset characteristics** — table showing cohort filter, n_users, n_items (per domain), n_interactions (per domain), overlap users, sparsity.
+4.  **Benchmark results** — table(s) of Recall@10, NDCG@10, sampled HR@10, sampled NDCG@10 across all models. Include subgroup breakdowns if applicable.
+5.  **Benchmark plots** — embed or reference the plot PNGs generated for this lesson (relative path to `artifacts/`).
+6.  **Key takeaways** — what was learned, what surprised, what matched or contradicted the lesson's original claim/plan. Be honest about null results.
