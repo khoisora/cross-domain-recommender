@@ -264,6 +264,9 @@ def build_movie_game_dataset(
     min_movie_ratings: int = 0,
     min_game_ratings: int = 0,
     max_game_ratings: int = 0,
+    genre_filter: bool = False,
+    overlap_item_filter: bool = False,
+    movie_popularity_min: int = 0,
     output_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Build the movie_game processed dataset.
@@ -392,6 +395,51 @@ def build_movie_game_dataset(
             filter_desc, before_overlap, filtered_ratings["user_id"].nunique(),
         )
 
+    # 5b. Catalog sharpening filters (Lesson 5 — optional)
+
+    # Genre filter: remove non-transferable movie items (fitness DVDs, opera, classical)
+    if genre_filter:
+        _NONTRANSFERABLE_KEYWORDS = [
+            "exercise", "workout", "fitness", "aerobics", "yoga", "pilates",
+            "dance instruction", "weight loss", "opera", "classical music",
+        ]
+        _NONTRANSFERABLE_CATEGORIES = {"Sports & Outdoors"}
+        movie_items = items[items["domain"] == "movie"]
+        cats_lower = movie_items["categories"].fillna("").str.lower()
+        main_cat = movie_items["main_category"].fillna("")
+        is_bad = main_cat.isin(_NONTRANSFERABLE_CATEGORIES) | \
+            cats_lower.apply(lambda c: any(kw in c for kw in _NONTRANSFERABLE_KEYWORDS))
+        bad_ids = set(movie_items[is_bad]["external_id"])
+        before_genre = len(filtered_ratings)
+        filtered_ratings = filtered_ratings[~filtered_ratings["item_id"].isin(bad_ids)].copy()
+        logger.info("Genre filter: removed %d movie items, %d -> %d ratings",
+                    len(bad_ids), before_genre, len(filtered_ratings))
+
+    # Overlap-user item filter: drop items never rated by any overlap user
+    if overlap_item_filter:
+        mr = filtered_ratings[filtered_ratings["domain"] == "movie"]
+        gr = filtered_ratings[filtered_ratings["domain"] == "game"]
+        ov_users = set(mr["user_id"]) & set(gr["user_id"])
+        ov_movie_items = set(mr[mr["user_id"].isin(ov_users)]["item_id"])
+        ov_game_items = set(gr[gr["user_id"].isin(ov_users)]["item_id"])
+        ov_items = ov_movie_items | ov_game_items
+        before_ov = filtered_ratings["item_id"].nunique()
+        filtered_ratings = filtered_ratings[filtered_ratings["item_id"].isin(ov_items)].copy()
+        logger.info("Overlap-user item filter: %d -> %d items",
+                    before_ov, filtered_ratings["item_id"].nunique())
+
+    # Movie popularity filter: drop movies with < N ratings
+    if movie_popularity_min > 0:
+        mr = filtered_ratings[filtered_ratings["domain"] == "movie"]
+        movie_counts = mr["item_id"].value_counts()
+        popular_movies = set(movie_counts[movie_counts >= movie_popularity_min].index)
+        game_items = set(filtered_ratings[filtered_ratings["domain"] == "game"]["item_id"])
+        keep_items = popular_movies | game_items
+        before_pop = filtered_ratings["item_id"].nunique()
+        filtered_ratings = filtered_ratings[filtered_ratings["item_id"].isin(keep_items)].copy()
+        logger.info("Movie popularity filter (>=%d): %d -> %d items",
+                    movie_popularity_min, before_pop, filtered_ratings["item_id"].nunique())
+
     # 6. Random user sampling (optional)
     if sample_users is not None:
         all_users = sorted(filtered_ratings["user_id"].unique())
@@ -498,6 +546,12 @@ if __name__ == "__main__":
                         help="Min game ratings per user for overlap filter (0 to skip)")
     parser.add_argument("--max-game-ratings", type=int, default=0,
                         help="Max game ratings per user (0 = no cap)")
+    parser.add_argument("--genre-filter", action="store_true",
+                        help="Remove non-transferable movie items (fitness/opera/classical)")
+    parser.add_argument("--overlap-item-filter", action="store_true",
+                        help="Drop items never rated by any overlap user")
+    parser.add_argument("--movie-popularity-min", type=int, default=0,
+                        help="Drop movies with fewer than N ratings (0 to skip)")
     parser.add_argument("--output-dir", type=str, default=None,
                         help="Custom output directory (default: processed/)")
     args = parser.parse_args()
@@ -509,6 +563,9 @@ if __name__ == "__main__":
         min_movie_ratings=args.min_movie_ratings,
         min_game_ratings=args.min_game_ratings,
         max_game_ratings=args.max_game_ratings,
+        genre_filter=args.genre_filter,
+        overlap_item_filter=args.overlap_item_filter,
+        movie_popularity_min=args.movie_popularity_min,
         output_dir=Path(args.output_dir) if args.output_dir else None,
     )
     logger.info("Done. %d users, %d ratings", metadata["total_users"], metadata["total_ratings"])
