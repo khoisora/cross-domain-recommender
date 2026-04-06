@@ -54,7 +54,7 @@ K = 10  # all metrics @10 only — no @5, @20, @50
 # ---------------------------------------------------------------------------
 _DOMAIN_PAIR_PATHS: dict[str, tuple[Path, Path]] = {
     "movie_game": (
-        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_filtered_v2",
+        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_sparse_loose",
         PROJECT_ROOT / "artifacts",
     ),
 }
