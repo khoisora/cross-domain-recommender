@@ -54,7 +54,7 @@ K = 10  # all metrics @10 only — no @5, @20, @50
 # ---------------------------------------------------------------------------
 _DOMAIN_PAIR_PATHS: dict[str, tuple[Path, Path]] = {
     "movie_game": (
-        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_filtered",
+        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_overlap",
         PROJECT_ROOT / "artifacts",
     ),
 }
@@ -494,3 +494,161 @@ def save_result(
 
     path.write_text(json.dumps(entry, indent=2, default=str))
     logger.info("Saved %s results to %s", algo, path)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Cold-start user-split protocol (Lesson 6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def load_user_split_cold_start_split(
+    cold_start_ratio: float = 0.2,
+    min_game_interactions: int = 2,
+    min_movie_interactions: int = 5,
+    domain_pair: str = "movie_game",
+    target_domain: str = "game",
+    max_eval_users: int = 2000,
+    seed: int = SEED,
+) -> CrossDomainSplit:
+    """80/20 warm/cold user split for cold-start evaluation.
+
+    Cold users: ALL game interactions removed from training, only movies in cross_train.
+    Test: cold users' chronologically last game interaction (leave-last-out).
+    Warm users: all game + movie interactions in training as usual.
+    """
+    configure_benchmark(domain_pair)
+
+    ratings = pd.read_parquet(DATA_DIR / "ratings.parquet")
+    movie_df = ratings[ratings["domain"] == "movie"].copy()
+    game_df = ratings[ratings["domain"] == "game"].copy()
+
+    logger.info("Cold-start split: %d ratings (movie=%d, game=%d)",
+                len(ratings), len(movie_df), len(game_df))
+
+    # Count per-user interactions per domain
+    game_counts = game_df.groupby("user_id").size()
+    movie_counts = movie_df.groupby("user_id").size()
+
+    # Eligible users: enough interactions in both domains
+    eligible = set(game_counts[game_counts >= min_game_interactions].index) & \
+               set(movie_counts[movie_counts >= min_movie_interactions].index)
+    eligible_sorted = sorted(eligible)
+    logger.info("Eligible users: %d (games>=%d, movies>=%d)",
+                len(eligible_sorted), min_game_interactions, min_movie_interactions)
+
+    # Random 80/20 split
+    rng = np.random.RandomState(seed)
+    n_cold = max(1, int(len(eligible_sorted) * cold_start_ratio))
+    cold_ids = set(rng.choice(eligible_sorted, size=n_cold, replace=False).tolist())
+    warm_ids = set(eligible_sorted) - cold_ids
+    logger.info("Warm: %d, Cold: %d", len(warm_ids), len(cold_ids))
+
+    # Game training: warm users only
+    game_train = game_df[game_df["user_id"].isin(warm_ids)].copy()
+
+    # Cold users' test: last game interaction per user (leave-last-out)
+    cold_games = game_df[game_df["user_id"].isin(cold_ids)].copy()
+    cold_games_sorted = cold_games.sort_values("timestamp") if cold_games["timestamp"].notna().any() else cold_games
+    game_test = cold_games_sorted.groupby("user_id").tail(1).copy()
+
+    # Cross-domain training: ALL movies + warm-user games
+    cross_train = pd.concat([movie_df, game_train], ignore_index=True)
+
+    # Build unified ID maps (all users and items from both domains)
+    all_users = sorted({normalize_id(u) for u in ratings["user_id"].unique()})
+    user_to_idx = {u: i for i, u in enumerate(all_users)}
+    all_items = sorted({normalize_id(it) for it in ratings["item_id"].unique()})
+    item_to_idx = {it: i for i, it in enumerate(all_items)}
+    idx_to_item = {i: it for it, i in item_to_idx.items()}
+
+    game_item_ids = {normalize_id(x) for x in game_df["item_id"].unique()}
+    movie_item_ids = {normalize_id(x) for x in movie_df["item_id"].unique()}
+    game_item_indices = {item_to_idx[iid] for iid in game_item_ids if iid in item_to_idx}
+    movie_item_indices = {item_to_idx[iid] for iid in movie_item_ids if iid in item_to_idx}
+
+    # Eval structures
+    game_test_relevant, game_train_seen = _build_eval_structures(
+        game_test, game_train, user_to_idx, item_to_idx,
+    )
+
+    # Filter out cold users whose test item was never seen by warm users
+    warm_game_items = {normalize_id(iid) for iid in game_train["item_id"].unique()}
+    valid_cold_users = []
+    for uid_idx, rel_items in game_test_relevant.items():
+        for iid_idx in rel_items:
+            raw_iid = idx_to_item.get(iid_idx, "")
+            if raw_iid in warm_game_items:
+                valid_cold_users.append(uid_idx)
+                break
+    logger.info("Cold users with valid test items: %d / %d",
+                len(valid_cold_users), len(cold_ids))
+
+    eval_user_indices = sorted(valid_cold_users)
+    if max_eval_users and len(eval_user_indices) > max_eval_users:
+        rng2 = np.random.RandomState(seed)
+        eval_user_indices = sorted(rng2.choice(eval_user_indices, max_eval_users, replace=False))
+
+    # Subgroups by movie richness
+    cold_movie_counts = {normalize_id(uid): cnt for uid, cnt in movie_counts.items()
+                         if uid in cold_ids}
+    cs_low, cs_med, cs_rich = [], [], []
+    for raw_uid, cnt in cold_movie_counts.items():
+        uidx = user_to_idx.get(raw_uid)
+        if uidx is None or uidx not in set(eval_user_indices):
+            continue
+        if cnt < 15:
+            cs_low.append(uidx)
+        elif cnt < 50:
+            cs_med.append(uidx)
+        else:
+            cs_rich.append(uidx)
+
+    device = (
+        "mps" if torch.backends.mps.is_available()
+        else ("cuda" if torch.cuda.is_available() else "cpu")
+    )
+
+    dataset_info = {
+        "domain_pair": domain_pair,
+        "cohort_filter": "cold-start user-split (80/20)",
+        "n_users": len(user_to_idx),
+        "n_warm_users": len(warm_ids),
+        "n_cold_users": len(cold_ids),
+        "n_eval_cold_users": len(eval_user_indices),
+        "n_movie_interactions": len(movie_df),
+        "n_game_interactions": len(game_train),
+        "n_game_interactions_warm": len(game_train),
+        "split": "user-split cold-start on games",
+    }
+
+    return CrossDomainSplit(
+        game_train=game_train,
+        game_val=pd.DataFrame(columns=game_df.columns),
+        game_test=game_test,
+        movie_train=movie_df,
+        movie_val=pd.DataFrame(columns=movie_df.columns),
+        movie_test=pd.DataFrame(columns=movie_df.columns),
+        movie_all=movie_df,
+        game_all=game_df,
+        cross_train=cross_train,
+        user_to_idx=user_to_idx,
+        item_to_idx=item_to_idx,
+        idx_to_item=idx_to_item,
+        game_item_indices=game_item_indices,
+        movie_item_indices=movie_item_indices,
+        game_test_relevant=game_test_relevant,
+        game_val_relevant={},
+        game_train_seen=game_train_seen,
+        movie_test_relevant={},
+        movie_val_relevant={},
+        movie_train_seen={},
+        eval_user_indices=eval_user_indices,
+        user_subgroups={
+            "cs_low_movies": cs_low,
+            "cs_med_movies": cs_med,
+            "cs_rich_movies": cs_rich,
+        },
+        target_domain=target_domain,
+        domain_pair=domain_pair,
+        device=device,
+        dataset_info=dataset_info,
+    )

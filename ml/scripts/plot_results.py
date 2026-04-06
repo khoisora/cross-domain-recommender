@@ -86,12 +86,14 @@ def create_bar_chart(results: list[dict], output_path: Path, lesson: int):
 
     # --- Dataset info annotation ---
     ds = results[0].get("dataset_info", {})
+    def _fmt(v): return f"{v:,}" if isinstance(v, int) else str(v)
+    games_val = ds.get('n_game_interactions', ds.get('n_game_interactions_warm', '?'))
     info_text = (
         f"Domain: {ds.get('domain_pair', '?')}\n"
         f"Cohort: {ds.get('cohort_filter', '?')}\n"
-        f"Users: {ds.get('n_users', '?'):,}  |  "
-        f"Movies: {ds.get('n_movie_interactions', '?'):,}  |  "
-        f"Games: {ds.get('n_game_interactions', '?'):,}\n"
+        f"Users: {_fmt(ds.get('n_users', '?'))}  |  "
+        f"Movies: {_fmt(ds.get('n_movie_interactions', '?'))}  |  "
+        f"Games: {_fmt(games_val)}\n"
         f"Split: {ds.get('split', '?')}"
     )
     fig.text(
