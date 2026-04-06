@@ -57,6 +57,14 @@ _DOMAIN_PAIR_PATHS: dict[str, tuple[Path, Path]] = {
         PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_overlap",
         PROJECT_ROOT / "artifacts",
     ),
+    "movie_game_sparse_loose": (
+        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_sparse_loose",
+        PROJECT_ROOT / "artifacts_sparse_loose",
+    ),
+    "movie_game_sparse_strict": (
+        PROJECT_ROOT / "ml" / "data" / "amazon_2023" / "processed_sparse_strict",
+        PROJECT_ROOT / "artifacts_sparse_strict",
+    ),
 }
 
 # Mutable state — set by configure_benchmark()

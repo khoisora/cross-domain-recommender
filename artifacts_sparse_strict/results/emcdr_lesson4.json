@@ -1,0 +1,65 @@
+{
+  "model": "EMCDR",
+  "lesson": 4,
+  "description": "RecBole-CDR EMCDR, emb=64, SOURCE:20+TARGET:20+OVERLAP:10, lr=0.001",
+  "time_completed": "2026-04-06T10:15:25.904344",
+  "train_time_s": 136.05931496620178,
+  "dataset_info": {
+    "domain_pair": "movie_game_sparse_strict",
+    "cohort_filter": "users >= 10 total interactions, overlap users (movies >= 10, games >= 1, games <= 3)",
+    "n_users": 12891,
+    "n_movie_interactions": 337531,
+    "n_game_interactions": 19679,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.013,
+  "ndcg@10": 0.005669058844063329,
+  "subgroups": {
+    "super_cold_users": {
+      "recall@10": 0.01462225832656377,
+      "ndcg@10": 0.006313469135365971
+    },
+    "one_shot_target_user": {
+      "recall@10": 0.006224066390041493,
+      "ndcg@10": 0.00297087084903618
+    },
+    "one_shot_unpopular_target_user": {
+      "recall@10": 0.017421602787456445,
+      "ndcg@10": 0.00743650673608261
+    },
+    "high_source_low_target": {
+      "recall@10": 0.016359918200409,
+      "ndcg@10": 0.0071200157474118515
+    },
+    "high_source_unpopular_low_target": {
+      "recall@10": 0.012422360248447204,
+      "ndcg@10": 0.005508402529407091
+    }
+  },
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.204,
+  "sampled_ndcg@10": 0.08455746514775002,
+  "sampled_subgroups": {
+    "super_cold_users": {
+      "sampled_hr@10": 0.21364744110479286,
+      "sampled_ndcg@10": 0.0877076414188856
+    },
+    "one_shot_target_user": {
+      "sampled_hr@10": 0.21369294605809128,
+      "sampled_ndcg@10": 0.08779244959660458
+    },
+    "one_shot_unpopular_target_user": {
+      "sampled_hr@10": 0.14634146341463414,
+      "sampled_ndcg@10": 0.06561276307766013
+    },
+    "high_source_low_target": {
+      "sampled_hr@10": 0.2249488752556237,
+      "sampled_ndcg@10": 0.09250637619733043
+    },
+    "high_source_unpopular_low_target": {
+      "sampled_hr@10": 0.16149068322981366,
+      "sampled_ndcg@10": 0.06977097910012867
+    }
+  },
+  "n_sampled_users": 2000
+}

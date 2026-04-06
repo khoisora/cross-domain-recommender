@@ -1,0 +1,89 @@
+{
+  "model": "CMF",
+  "lesson": 4,
+  "description": "RecBole-CDR CMF, emb=96, epochs=40, lr=0.01, alpha=0.3",
+  "time_completed": "2026-04-06T10:15:19.157648",
+  "train_time_s": 72.71600937843323,
+  "dataset_info": {
+    "domain_pair": "movie_game_sparse_loose",
+    "cohort_filter": "users >= 10 total interactions, overlap users (movies >= 10, games >= 1)",
+    "n_users": 18841,
+    "n_movie_interactions": 539782,
+    "n_game_interactions": 86070,
+    "split": "leave-last-out on games"
+  },
+  "recall@10": 0.0175,
+  "ndcg@10": 0.009684002975045214,
+  "subgroups": {
+    "super_cold_users": {
+      "recall@10": 0.00857843137254902,
+      "ndcg@10": 0.005820452346254134
+    },
+    "one_shot_target_user": {
+      "recall@10": 0.04081632653061224,
+      "ndcg@10": 0.020461456943491402
+    },
+    "one_shot_unpopular_target_user": {
+      "recall@10": 0.0,
+      "ndcg@10": 0.0
+    },
+    "high_source_low_target": {
+      "recall@10": 0.0221606648199446,
+      "ndcg@10": 0.010496386527540954
+    },
+    "high_source_unpopular_low_target": {
+      "recall@10": 0.0,
+      "ndcg@10": 0.0
+    },
+    "movie_heavy": {
+      "recall@10": 0.017412935323383085,
+      "ndcg@10": 0.010743314817089504
+    },
+    "game_heavy": {
+      "recall@10": 0.0,
+      "ndcg@10": 0.0
+    },
+    "balanced": {
+      "recall@10": 0.013888888888888888,
+      "ndcg@10": 0.005908341513876702
+    }
+  },
+  "n_eval_users": 2000,
+  "sampled_hr@10": 0.205,
+  "sampled_ndcg@10": 0.08954985353643502,
+  "sampled_subgroups": {
+    "super_cold_users": {
+      "sampled_hr@10": 0.18504901960784315,
+      "sampled_ndcg@10": 0.07888139457087912
+    },
+    "one_shot_target_user": {
+      "sampled_hr@10": 0.22448979591836735,
+      "sampled_ndcg@10": 0.1022788890409995
+    },
+    "one_shot_unpopular_target_user": {
+      "sampled_hr@10": 0.16037735849056603,
+      "sampled_ndcg@10": 0.06008782666148279
+    },
+    "high_source_low_target": {
+      "sampled_hr@10": 0.20498614958448755,
+      "sampled_ndcg@10": 0.09023284497671101
+    },
+    "high_source_unpopular_low_target": {
+      "sampled_hr@10": 0.14754098360655737,
+      "sampled_ndcg@10": 0.05416655123633092
+    },
+    "movie_heavy": {
+      "sampled_hr@10": 0.2263681592039801,
+      "sampled_ndcg@10": 0.10141777654153064
+    },
+    "game_heavy": {
+      "sampled_hr@10": 0.21052631578947367,
+      "sampled_ndcg@10": 0.10051961574855724
+    },
+    "balanced": {
+      "sampled_hr@10": 0.2222222222222222,
+      "sampled_ndcg@10": 0.09527023398572619
+    }
+  },
+  "n_sampled_users": 2000
+}
