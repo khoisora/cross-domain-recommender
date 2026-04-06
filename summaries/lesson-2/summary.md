@@ -2,7 +2,7 @@
 
 **Claim**: On standard LLO with a mixed user population, a well-tuned single-domain graph model (LightGCN) outperforms all collaborative CDR models.
 
-**Result**: Confirmed. LightGCN leads by 1.9x over MF-BPR and 1.9x over the best CDR model (EMCDR) on full-rank Recall@10.
+**Result**: Confirmed. LightGCN leads by 1.7x over MF-BPR and 1.8x over the best CDR model (EMCDR) on full-rank Recall@10.
 
 ---
 
@@ -11,10 +11,10 @@
 | Aspect | Lesson 1 | Lesson 2 |
 |--------|----------|----------|
 | **Models** | MF Explicit, MF BPR (2 models) | +LightGCN, +NCF, +CMF, +EMCDR, +PTUPCDR (5 new models) |
-| **Data** | Same | Same (no user k-core, ~1M randomly sampled users) |
+| **Data** | Same | Same (no user k-core, ~1M randomly sampled users, implicit rating >= 4) |
 | **Evaluation** | Same | Same |
 
-**Kept constant**: Dataset (1M users, no k-core, 5.8% overlap), item k-core, LLO split, POSITIVE_THRESHOLD=4, all metrics @10.
+**Kept constant**: Dataset (1M users, no k-core, 5.2% overlap, implicit rating >= 4), item k-core, LLO split, POSITIVE_THRESHOLD=4, all metrics @10.
 
 ---
 
@@ -40,35 +40,35 @@
 |---|---|
 | Domain pair | movie_game |
 | Cohort filter | no user k-core filter, sampled to ~1000K users |
+| Implicit conversion | rating >= 4 (POSITIVE_THRESHOLD) |
 | n_users | 1,000,000 |
-| n_movie_items | 53,372 |
-| n_game_items | 14,407 |
-| n_movie_interactions | 1,834,679 |
-| n_game_interactions | 377,994 |
-| Overlap users | 57,657 (5.8%) |
+| n_movie_items | 45,933 |
+| n_game_items | 11,706 |
+| n_movie_interactions | 1,804,737 |
+| n_game_interactions | 337,803 |
+| Overlap users | 52,281 (5.2%) |
 | Split | Leave-last-out on games |
-| Game train / val / test | 115,048 / 24,550 / 238,396 |
 
 ## Benchmark results
 
 | Model | Family | Recall@10 | NDCG@10 | Sampled HR@10 | Sampled NDCG@10 |
 |---|---|---|---|---|---|
-| **LightGCN** | Graph (single-domain) | **0.0290** | **0.0157** | 0.3005 | 0.1413 |
-| MF-BPR | MF (single-domain) | 0.0165 | 0.0088 | 0.1720 | 0.0779 |
-| EMCDR | Mapping (CDR) | 0.0155 | 0.0077 | 0.8235 | 0.4904 |
-| PTUPCDR | Personalized mapping (CDR) | 0.0095 | 0.0047 | 0.8850 | 0.5401 |
-| NCF | Neural (single-domain) | 0.0065 | 0.0028 | 0.8950 | 0.5488 |
-| CMF | Joint MF (CDR) | 0.0035 | 0.0021 | 0.6945 | 0.4273 |
+| **LightGCN** | Graph (single-domain) | **0.0290** | **0.0157** | 0.3050 | 0.1425 |
+| MF-BPR | MF (single-domain) | 0.0170 | 0.0093 | 0.1710 | 0.0783 |
+| EMCDR | Mapping (CDR) | 0.0160 | 0.0082 | 0.8045 | 0.4805 |
+| NCF | Neural (single-domain) | 0.0120 | 0.0069 | 0.8880 | 0.5410 |
+| PTUPCDR | Personalized mapping (CDR) | 0.0085 | 0.0054 | 0.8850 | 0.5397 |
+| CMF | Joint MF (CDR) | 0.0050 | 0.0022 | 0.6945 | 0.4273 |
 
 ### % gap vs LightGCN (full-rank Recall@10)
 
 | Model | Gap |
 |---|---|
-| MF-BPR | -43.1% |
-| EMCDR | -46.6% |
-| PTUPCDR | -67.2% |
-| NCF | -77.6% |
-| CMF | -87.9% |
+| MF-BPR | -41.4% |
+| EMCDR | -44.8% |
+| NCF | -58.6% |
+| PTUPCDR | -70.7% |
+| CMF | -82.8% |
 
 ## Benchmark plots
 
@@ -76,11 +76,11 @@
 
 ## Key takeaways
 
-1. **LightGCN dominates** on full-rank metrics (Recall@10=0.0290), nearly 2x over MF-BPR and the best CDR model. The graph structure captures collaborative signal effectively even on sparse data.
+1. **LightGCN dominates** on full-rank metrics (Recall@10=0.0290), 1.7x over MF-BPR and 1.8x over the best CDR model. The graph structure captures collaborative signal effectively even on sparse data.
 
-2. **CDR models underperform single-domain**. EMCDR (0.0155) is the best CDR but still below MF-BPR (0.0165). With only 5.8% overlap, cross-domain mappings have too few shared users to learn meaningful transfer.
+2. **CDR models underperform single-domain**. EMCDR (0.0160) is the best CDR but still below MF-BPR (0.0170). With only 5.2% overlap, cross-domain mappings have too few shared users to learn meaningful transfer.
 
-3. **Sampled metrics diverge from full-rank**. NCF, PTUPCDR, and EMCDR all show very high sampled HR@10 (0.82-0.90) but low full-rank Recall@10. The 1-vs-99 protocol is too easy — models learn user/item biases that beat random negatives but fail to rank the full 14K item catalog.
+3. **Sampled metrics diverge from full-rank**. NCF, PTUPCDR, and EMCDR all show very high sampled HR@10 (0.80-0.89) but low full-rank Recall@10. The 1-vs-99 protocol is too easy — models learn user/item biases that beat random negatives but fail to rank the full 11.7K item catalog.
 
 4. **MF-BPR holds up well**. Despite being the simplest model, it beats all CDR models on full-rank. BPR's pairwise objective produces discriminative scores even on sparse data.
 
