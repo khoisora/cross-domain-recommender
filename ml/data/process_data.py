@@ -261,6 +261,9 @@ def build_movie_game_dataset(
     force_reprocess: bool = False,
     min_user_interactions: int = MIN_USER_INTERACTIONS,
     sample_users: int | None = None,
+    min_movie_ratings: int = 0,
+    min_game_ratings: int = 0,
+    output_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Build the movie_game processed dataset.
 
@@ -271,6 +274,7 @@ def build_movie_game_dataset(
       4. Convert to implicit: keep only ratings >= 4
       5. Item k-core: movies >= 20, games >= 10 interactions
       6. Optional user k-core (min_user_interactions, default 10; set 0 to skip)
+      6b. Optional overlap filter (min_movie_ratings > 0 AND min_game_ratings > 0)
       7. Optional random user sampling (sample_users)
       8. Save parquet files + metadata JSON
 
@@ -278,16 +282,17 @@ def build_movie_game_dataset(
 
     Returns (ratings_df, items_df, metadata_dict).
     """
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    ratings_path = OUTPUT_DIR / "ratings.parquet"
-    metadata_path = OUTPUT_DIR / "dataset_metadata.json"
+    out_dir = output_dir or OUTPUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ratings_path = out_dir / "ratings.parquet"
+    metadata_path = out_dir / "dataset_metadata.json"
 
     # Check for existing processed data
     if not force_reprocess and ratings_path.exists() and metadata_path.exists():
-        logger.info("Loading existing processed dataset from %s", OUTPUT_DIR)
+        logger.info("Loading existing processed dataset from %s", out_dir)
         ratings = pd.read_parquet(ratings_path)
-        movies = pd.read_parquet(OUTPUT_DIR / "movies.parquet")
-        games = pd.read_parquet(OUTPUT_DIR / "games.parquet")
+        movies = pd.read_parquet(out_dir / "movies.parquet")
+        games = pd.read_parquet(out_dir / "games.parquet")
         items = pd.concat([movies, games], ignore_index=True)
         with open(metadata_path) as f:
             metadata = json.load(f)
@@ -364,7 +369,23 @@ def build_movie_game_dataset(
             min_user_interactions, before_total, len(filtered_ratings), len(valid_users),
         )
 
-    # 5. Random user sampling (optional)
+    # 5. Overlap filter (optional — keep only users with enough ratings in BOTH domains)
+    if min_movie_ratings > 0 or min_game_ratings > 0:
+        movie_r = filtered_ratings[filtered_ratings["domain"] == "movie"]
+        game_r = filtered_ratings[filtered_ratings["domain"] == "game"]
+        movie_per_user = movie_r.groupby("user_id").size()
+        game_per_user = game_r.groupby("user_id").size()
+        valid_movie_users = set(movie_per_user[movie_per_user >= min_movie_ratings].index)
+        valid_game_users = set(game_per_user[game_per_user >= min_game_ratings].index)
+        overlap_valid = valid_movie_users & valid_game_users
+        before_overlap = filtered_ratings["user_id"].nunique()
+        filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(overlap_valid)].copy()
+        logger.info(
+            "Overlap filter (movies>=%d, games>=%d): %d -> %d users",
+            min_movie_ratings, min_game_ratings, before_overlap, filtered_ratings["user_id"].nunique(),
+        )
+
+    # 6. Random user sampling (optional)
     if sample_users is not None:
         all_users = sorted(filtered_ratings["user_id"].unique())
         rng = np.random.RandomState(SEED)
@@ -398,23 +419,24 @@ def build_movie_game_dataset(
     logger.info("  game:  %d ratings, %d items, %d users", n_games, game_ratings["item_id"].nunique(), len(game_users))
     logger.info("  overlap users: %d (%.1f%%)", len(overlap_users), overlap_pct)
 
-    # 6. Save parquet files
+    # 7. Save parquet files
     movies_df = items[items["domain"] == "movie"].copy()
     games_df = items[items["domain"] == "game"].copy()
 
     filtered_ratings.to_parquet(ratings_path, compression="snappy")
-    movie_ratings.to_parquet(OUTPUT_DIR / "movie_ratings.parquet", compression="snappy")
-    game_ratings.to_parquet(OUTPUT_DIR / "game_ratings.parquet", compression="snappy")
-    movies_df.to_parquet(OUTPUT_DIR / "movies.parquet", compression="snappy")
-    games_df.to_parquet(OUTPUT_DIR / "games.parquet", compression="snappy")
-
-    filtered_ratings.to_parquet(OUTPUT_DIR / "cross_domain_ratings.parquet", compression="snappy")
+    movie_ratings.to_parquet(out_dir / "movie_ratings.parquet", compression="snappy")
+    game_ratings.to_parquet(out_dir / "game_ratings.parquet", compression="snappy")
+    movies_df.to_parquet(out_dir / "movies.parquet", compression="snappy")
+    games_df.to_parquet(out_dir / "games.parquet", compression="snappy")
+    filtered_ratings.to_parquet(out_dir / "cross_domain_ratings.parquet", compression="snappy")
 
     cohort_parts = []
     if min_user_interactions > 0:
         cohort_parts.append(f"users >= {min_user_interactions} total interactions")
     else:
         cohort_parts.append("no user k-core filter")
+    if min_movie_ratings > 0 or min_game_ratings > 0:
+        cohort_parts.append(f"overlap users (movies >= {min_movie_ratings}, games >= {min_game_ratings})")
     if sample_users:
         cohort_parts.append(f"sampled to ~{sample_users // 1000}K users")
     cohort_filter = ", ".join(cohort_parts)
@@ -444,7 +466,7 @@ def build_movie_game_dataset(
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
 
-    logger.info("Saved processed dataset to %s", OUTPUT_DIR)
+    logger.info("Saved processed dataset to %s", out_dir)
     return filtered_ratings, items, metadata
 
 
@@ -459,11 +481,20 @@ if __name__ == "__main__":
                         help="Min total interactions per user (0 to skip)")
     parser.add_argument("--sample-users", type=int, default=None,
                         help="Subsample to N users preserving overlap ratio")
+    parser.add_argument("--min-movie-ratings", type=int, default=0,
+                        help="Min movie ratings per user for overlap filter (0 to skip)")
+    parser.add_argument("--min-game-ratings", type=int, default=0,
+                        help="Min game ratings per user for overlap filter (0 to skip)")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Custom output directory (default: processed/)")
     args = parser.parse_args()
 
     ratings, items, metadata = build_movie_game_dataset(
         force_reprocess=args.force_reprocess,
         min_user_interactions=args.min_user_interactions,
         sample_users=args.sample_users,
+        min_movie_ratings=args.min_movie_ratings,
+        min_game_ratings=args.min_game_ratings,
+        output_dir=Path(args.output_dir) if args.output_dir else None,
     )
     logger.info("Done. %d users, %d ratings", metadata["total_users"], metadata["total_ratings"])

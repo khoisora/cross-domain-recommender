@@ -467,7 +467,7 @@ Include MF-BPR from Lesson 1 as carry-forward baseline (no re-port needed).
 
 **Claim**: Filtering to 100% overlap users (active in both domains) dramatically improves CDR performance compared to the low-overlap Lesson 2 population. This proves overlap % is the key variable for cross-domain transfer.
 
-**Data**: `movie_game` — filter to overlap users with ≥ 5 movie ratings AND ≥ 1 game rating (the "loose" overlap definition). This becomes the default dataset for Lesson 3 — no separate cohort variants, no strict filter. All users are guaranteed to have activity in both domains (100% overlap). **Split**: Standard LLO on games.
+**Data**: `movie_game` — user k-core ≥ 10 total interactions (same as Phase 0), then filter to overlap users with ≥ 5 movie ratings AND ≥ 1 game rating. This becomes the default dataset for Lesson 3 — no separate cohort variants, no strict filter. All users are guaranteed to have activity in both domains (100% overlap). Stored in `processed_overlap/`. **Split**: Standard LLO on games.
 
 **Models**: MF-BPR, NCF, LightGCN, CMF, EMCDR, PTUPCDR (all already ported from Lesson 2).
 
