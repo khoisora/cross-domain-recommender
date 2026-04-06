@@ -9,6 +9,7 @@ and model prediction.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 
 def normalize_id(x) -> str:
@@ -28,3 +29,27 @@ def normalize_maps(
     u = {normalize_id(k): v for k, v in user_to_idx.items()}
     i = {normalize_id(k): v for k, v in item_to_idx.items()}
     return u, i
+
+
+def _safe_lookup(v, mapping: dict[str, int]):
+    if pd.isna(v):
+        return None
+    try:
+        return mapping.get(normalize_id(v))
+    except ValueError:
+        return None
+
+
+def map_user_item_columns(
+    df: pd.DataFrame,
+    user_to_idx: dict[str, int],
+    item_to_idx: dict[str, int],
+    *,
+    user_col: str = "user_id",
+    item_col: str = "item_id",
+) -> pd.DataFrame:
+    """Add _uidx, _iidx columns with int indices; drop rows with unknown ids."""
+    out = df.copy()
+    out["_uidx"] = out[user_col].map(lambda v: _safe_lookup(v, user_to_idx))
+    out["_iidx"] = out[item_col].map(lambda v: _safe_lookup(v, item_to_idx))
+    return out.dropna(subset=["_uidx", "_iidx"])

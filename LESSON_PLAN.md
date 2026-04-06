@@ -325,8 +325,9 @@ Port the minimum shared code from `~/work/MoviesGamesRecommender` needed to run 
 
 **1. Data processing**
 
--   Port `ml/data/process_data.py` from the old repo, but **only the core pipeline**: raw JSONL → parquet for the movie_game pair, with a **single, uniform k-core filter**: users with ≥ 10 total interactions (regardless of domain type — a user with 10 movie reviews and 0 game reviews is kept). Do **not** filter for overlap users (users in both domains) — that restriction is introduced later in Lesson 3 cohort variants. Item k-core: movies ≥ 20, games ≥ 10.
--   The initial processed output is simply `processed/` (movies + games + ratings parquets). All bench scripts in Lessons 1–2 use this same filtered dataset with no overlap-user or domain-specific cohort filtering.
+-   Port `ml/data/process_data.py` from the old repo, but **only the core pipeline**: raw JSONL → parquet for the movie_game pair. **Convert to implicit first**: keep only ratings ≥ 4 (POSITIVE_THRESHOLD) before any k-core or sampling. Item k-core: movies ≥ 20, games ≥ 10. User k-core and user sampling are configurable via CLI args (`--min-user-interactions`, `--sample-users`). Do **not** filter for overlap users — that restriction is introduced in Lesson 3.
+-   **Lesson 1–2 default**: no user k-core (`--min-user-interactions 0`), randomly sampled to ~1M users (`--sample-users 1000000`).
+-   The initial processed output is simply `processed/` (movies + games + ratings parquets). All bench scripts in Lessons 1–2 use this same dataset.
 -   Register only one domain pair in `_DOMAIN_PAIR_PATHS` for now: `"movie_game"` pointing at `processed/`.
 -   **Run the data pipeline as part of Phase 0**: after writing `process_data.py`, execute it to generate the parquet files in `processed/`. Verify the output exists and matches expected counts from `dataset_metadata.json` before proceeding.
 
@@ -339,7 +340,7 @@ Port the minimum shared code from `~/work/MoviesGamesRecommender` needed to run 
 
 -   Port `ml/evaluation/metrics.py` — Recall@K, NDCG@K, HitRate@K. Expose only @10.
 -   Port `ml/evaluation/evaluator.py` — full-rank eval and sampled@99 eval. Keep both modes; `sampled=True` flag.
--   Port `evaluate_cross_domain()` from `benchmark_common.py`. Include subgroup logic — but subgroups only activate when the cohort actually contains those users; they silently return empty if no users qualify.
+-   Port `evaluate_cross_domain()` from `benchmark_common.py`. No subgroup logic yet — subgroup analysis is introduced in Lesson 4.
 
 **4. Benchmark common**
 
@@ -378,7 +379,7 @@ Port the minimum shared code from `~/work/MoviesGamesRecommender` needed to run 
     }
     ```
     
-    **In Phase 0**, all scripts use the same `cohort_filter` value: `"users >= 10 total interactions, no overlap filter"`. Every bench script must pass this block when calling `save_result()`. `load_cross_domain_split()` should return it as part of `CrossDomainSplit` so bench scripts don't have to construct it manually. **Domain-specific cohort logic (including overlap-user filtering) is introduced in Lesson 3** — different cohort variants will have different `cohort_filter` strings.
+    **In Phase 0 / Lessons 1–2**, the `cohort_filter` value is read dynamically from `dataset_metadata.json` (written by `process_data.py`). Every bench script must pass this block when calling `save_result()`. `load_cross_domain_split()` should return it as part of `CrossDomainSplit` so bench scripts don't have to construct it manually. **Domain-specific cohort logic (including overlap-user filtering) is introduced in Lesson 3** — different cohort variants will have different `cohort_filter` strings.
     
 -   **CLI**: `python plot_results.py --domain-pair movie_game --lesson 1` reads all result JSONs for that lesson tag and writes a PNG to `artifacts/<domain-pair>/plots/lesson_<N>_<timestamp>.png`.
     
@@ -424,7 +425,7 @@ NewCrossDomainRecommenders/
 
 **Claim**: Models trained to minimize RMSE on star ratings optimize a different objective than top-10 ranking. BPR-trained implicit models outperform explicit MF on Recall@10 even at the same model capacity.
 
-**Data**: `movie_game` (basic processed from Phase 0: users ≥ 10 total interactions, no overlap-user filtering). **Split**: Standard LLO on games.
+**Data**: `movie_game` (no user k-core filter, randomly sampled to ~1M users). **Split**: Standard LLO on games.
 
 **Models to port from old repo**:
 
@@ -441,7 +442,7 @@ NewCrossDomainRecommenders/
 
 **Claim**: On standard LLO with a mixed user population, a well-tuned single-domain graph model (LightGCN) outperforms all collaborative CDR models.
 
-**Data**: `movie_game` (same as Lesson 1: users ≥ 10 total interactions, no overlap-user filtering). **Split**: Standard LLO on games.
+**Data**: `movie_game` (same as Lesson 1: no user k-core, ~1M randomly sampled users). **Split**: Standard LLO on games.
 
 **Models to port**:
 
@@ -493,6 +494,8 @@ Compare all three in one report.
 ## Lesson 4 — Source-rich / target-sparse cohorts + subgroup slices
 
 **Claim**: CDR's relative advantage improves when users have rich movie history but very few games. Subgroup analysis reveals which user regimes drive the headline metric.
+
+**New in this lesson**: Introduce subgroup analysis in `benchmark_common.py`. Subgroup logic (cold-start groups, transfer groups, balance groups) is added to `load_cross_domain_split()` here — it does not exist in L1–L3.
 
 **Data**: Extend `process_data.py` with two new target-sparse cohort variants (build on top of the `loose` cohort definition from Lesson 3):
 
@@ -664,7 +667,7 @@ Lesson 7
 ### Git branching
 
 -   **Create a new branch for each lesson/phase**: `phase-0`, `lesson-1`, `lesson-2`, etc.
--   **When a lesson/phase is complete** (bench scripts run, plots saved), merge the branch to `main` and create the next lesson branch from `main`.
+-   **When a lesson/phase is complete** (bench scripts run, plots saved), merge the branch to `main` with `--no-ff` (no fast-forward) to preserve a merge commit, then create the next lesson branch from `main`.
 -   **Use the current branch name to know which lesson you are working on.** Do not skip ahead.
 
 ### Conversation workflow

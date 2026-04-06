@@ -375,95 +375,6 @@ def load_cross_domain_split(
 
     logger.info("Eval users: %d (of %d with relevant test items)", len(eval_user_indices), len(target_test_relevant))
 
-    # ── Subgroups ───────────────────────────────────────────────────────────
-    # Subgroups partition eval users by their cross-domain activity pattern.
-    # This enables fine-grained analysis of where CDR models help vs hurt:
-    #   - Cold-start groups: super_cold (0 train), one_shot (1 train)
-    #   - Transfer groups: high source + low target (CDR should shine here)
-    #   - Balance groups: movie_heavy / game_heavy / balanced
-    #   - Unpopular variants: users whose train items are below-median popularity
-    user_movie_count = movie_df.groupby(movie_df["user_id"].map(normalize_id)).size().to_dict()
-    user_game_count = game_df.groupby(game_df["user_id"].map(normalize_id)).size().to_dict()
-
-    target_train_df = game_train if target_domain == "game" else movie_train
-    user_train_size = {
-        normalize_id(uid): int(cnt)
-        for uid, cnt in target_train_df.groupby("user_id").size().to_dict().items()
-    }
-
-    # Item popularity for unpopular detection
-    item_pop = {
-        item_to_idx[normalize_id(iid)]: int(cnt)
-        for iid, cnt in target_train_df.groupby("item_id").size().to_dict().items()
-        if normalize_id(iid) in item_to_idx
-    }
-    median_pop = float(np.median(list(item_pop.values()))) if item_pop else 1.0
-
-    # Per-user target train items
-    user_train_items: dict[str, set[int]] = {}
-    for uid_raw, grp in target_train_df.groupby("user_id"):
-        uid_norm = normalize_id(uid_raw)
-        user_train_items[uid_norm] = {
-            item_to_idx[normalize_id(iid)]
-            for iid in grp["item_id"]
-            if normalize_id(iid) in item_to_idx
-        }
-
-    def _unpopular(uid_norm: str) -> bool:
-        """Check if majority of user's train items are below-median popularity.
-        Users who interact mostly with unpopular items are harder to recommend for."""
-        items = user_train_items.get(uid_norm, set())
-        if not items:
-            return False
-        return sum(1 for i in items if item_pop.get(i, 0) <= median_pop) > len(items) / 2
-
-    subgroups: dict[str, list[int]] = {
-        "super_cold_users": [],
-        "one_shot_target_user": [],
-        "one_shot_unpopular_target_user": [],
-        "high_source_low_target": [],
-        "high_source_unpopular_low_target": [],
-        "movie_heavy": [],
-        "game_heavy": [],
-        "balanced": [],
-    }
-
-    idx_to_user = {v: k for k, v in user_to_idx.items()}
-    for uid_idx in eval_user_indices:
-        uid_str = idx_to_user[uid_idx]
-        mc = user_movie_count.get(uid_str, 0)
-        gc = user_game_count.get(uid_str, 0)
-        target_total = gc if target_domain == "game" else mc
-        source_count = mc if target_domain == "game" else gc
-        train_size = user_train_size.get(uid_str, 0)
-
-        # Cold-start groups (non-exclusive)
-        if train_size == 0 and source_count >= 10:
-            subgroups["super_cold_users"].append(uid_idx)
-        if train_size == 1 and source_count >= 10:
-            if _unpopular(uid_str):
-                subgroups["one_shot_unpopular_target_user"].append(uid_idx)
-            else:
-                subgroups["one_shot_target_user"].append(uid_idx)
-        if target_total <= 3 and source_count >= 15:
-            if _unpopular(uid_str):
-                subgroups["high_source_unpopular_low_target"].append(uid_idx)
-            else:
-                subgroups["high_source_low_target"].append(uid_idx)
-
-        # Warm-start groups
-        if target_total > 3:
-            if mc > 2 * gc:
-                subgroups["movie_heavy"].append(uid_idx)
-            elif gc > 2 * mc:
-                subgroups["game_heavy"].append(uid_idx)
-            else:
-                subgroups["balanced"].append(uid_idx)
-
-    for name, uids in subgroups.items():
-        if uids:
-            logger.info("  subgroup %-35s: %d users", name, len(uids))
-
     device = (
         "mps" if torch.backends.mps.is_available()
         else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -501,7 +412,7 @@ def load_cross_domain_split(
         movie_val_relevant=movie_val_relevant,
         movie_train_seen=movie_train_seen,
         eval_user_indices=eval_user_indices,
-        user_subgroups=subgroups,
+        user_subgroups={},
         target_domain=target_domain,
         domain_pair=domain_pair,
         device=device,
@@ -510,9 +421,12 @@ def load_cross_domain_split(
 
 
 def _cohort_filter_string(domain_pair: str) -> str:
-    """Human-readable cohort filter description for dataset_info."""
-    # Phase 0 / Lessons 1–2: no overlap filter, users >= 10 total interactions
-    return "users >= 10 total interactions, no overlap filter"
+    """Human-readable cohort filter description from dataset_metadata.json."""
+    meta_path = DATA_DIR / "dataset_metadata.json"
+    if meta_path.exists():
+        with open(meta_path) as f:
+            return json.load(f).get("cohort_filter", "unknown")
+    return "unknown"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

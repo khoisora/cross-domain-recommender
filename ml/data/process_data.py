@@ -30,6 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Literal, Optional
 
+import numpy as np
 import pandas as pd
 
 try:
@@ -54,6 +55,9 @@ META_FILES = {
     "movies": RAW_DATA_DIR / "movies_meta_2023.jsonl.gz",
     "games": RAW_DATA_DIR / "games_meta_2023.jsonl.gz",
 }
+
+SEED = 42
+POSITIVE_THRESHOLD = 4  # rating >= 4 counts as a positive interaction
 
 # K-core thresholds
 # Users: >= 10 total interactions across both domains (not per-domain)
@@ -255,19 +259,20 @@ def _kcore_filter(
 
 def build_movie_game_dataset(
     force_reprocess: bool = False,
+    min_user_interactions: int = MIN_USER_INTERACTIONS,
+    sample_users: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Build the movie_game processed dataset.
-
-    Phase 0 / Lessons 1–2: users with >= 10 total interactions (across both
-    domains), no overlap-user filtering. A user with only movie history is kept.
 
     Pipeline steps:
       1. Load raw JSONL reviews + metadata for both domains
       2. Filter game items to actual games (exclude accessories, consoles)
       3. Deduplicate items (merge format/platform variants)
-      4. Item k-core: movies >= 20, games >= 10 interactions
-      5. User k-core: >= 10 total interactions (across both domains)
-      6. Save parquet files + metadata JSON
+      4. Convert to implicit: keep only ratings >= 4
+      5. Item k-core: movies >= 20, games >= 10 interactions
+      6. Optional user k-core (min_user_interactions, default 10; set 0 to skip)
+      7. Optional random user sampling (sample_users)
+      8. Save parquet files + metadata JSON
 
     Caches results: skips processing if output parquets already exist.
 
@@ -322,7 +327,14 @@ def build_movie_game_dataset(
     logger.info("Deduplicating items...")
     ratings, items = deduplicate_dataset(ratings, items)
 
-    # 3. Item k-core filtering per domain (remove items with too few interactions)
+    # 3. Convert to implicit: keep only positive interactions (rating >= 4)
+    before_implicit = len(ratings)
+    ratings = ratings[ratings["rating"] >= POSITIVE_THRESHOLD].copy()
+    logger.info("Implicit conversion (rating >= %d): %d -> %d ratings (%.1f%% kept)",
+                POSITIVE_THRESHOLD, before_implicit, len(ratings),
+                100 * len(ratings) / before_implicit if before_implicit else 0)
+
+    # 4. Item k-core filtering per domain (remove items with too few interactions)
     movie_ratings = ratings[ratings["domain"] == "movie"].copy()
     game_ratings = ratings[ratings["domain"] == "game"].copy()
 
@@ -343,17 +355,25 @@ def build_movie_game_dataset(
     # Recombine after item filtering
     filtered_ratings = pd.concat([movie_ratings, game_ratings], ignore_index=True)
 
-    # 4. User k-core: keep users with >= 10 TOTAL interactions (across both domains).
-    # No overlap requirement — a user with 10 movie reviews and 0 game reviews is kept.
-    # Overlap-user filtering is introduced in Lesson 3 cohort variants.
-    before_total = len(filtered_ratings)
-    user_counts = filtered_ratings["user_id"].value_counts()
-    valid_users = set(user_counts[user_counts >= MIN_USER_INTERACTIONS].index)
-    filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(valid_users)].copy()
-    logger.info(
-        "User k-core (>=%d total): %d -> %d ratings (%d users kept)",
-        MIN_USER_INTERACTIONS, before_total, len(filtered_ratings), len(valid_users),
-    )
+    # 4. User k-core (optional — set min_user_interactions=0 to skip)
+    if min_user_interactions > 0:
+        before_total = len(filtered_ratings)
+        user_counts = filtered_ratings["user_id"].value_counts()
+        valid_users = set(user_counts[user_counts >= min_user_interactions].index)
+        filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(valid_users)].copy()
+        logger.info(
+            "User k-core (>=%d total): %d -> %d ratings (%d users kept)",
+            min_user_interactions, before_total, len(filtered_ratings), len(valid_users),
+        )
+
+    # 5. Random user sampling (optional)
+    if sample_users is not None:
+        all_users = sorted(filtered_ratings["user_id"].unique())
+        rng = np.random.RandomState(SEED)
+        sampled = set(rng.choice(all_users, min(sample_users, len(all_users)), replace=False))
+        before_sample = len(all_users)
+        filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(sampled)].copy()
+        logger.info("User sampling: %d -> %d users", before_sample, filtered_ratings["user_id"].nunique())
 
     # Sync items — remove items with no remaining ratings
     valid_item_ids = set(filtered_ratings["item_id"])
@@ -370,17 +390,15 @@ def build_movie_game_dataset(
     n_movies = len(movie_ratings)
     n_games = len(game_ratings)
 
-    # Count overlap users for metadata (informational, not used for filtering)
     movie_users = set(movie_ratings["user_id"])
     game_users = set(game_ratings["user_id"])
     overlap_users = movie_users & game_users
+    overlap_pct = round(100 * len(overlap_users) / n_users, 1) if n_users else 0
 
-    logger.info("Final dataset: %d users, %d items, %d ratings", n_users, n_items, n_ratings)
+    logger.info("Final dataset: %d users, %d items, %d ratings (%.1f%% overlap)", n_users, n_items, n_ratings, overlap_pct)
     logger.info("  movie: %d ratings, %d items, %d users", n_movies, movie_ratings["item_id"].nunique(), len(movie_users))
     logger.info("  game:  %d ratings, %d items, %d users", n_games, game_ratings["item_id"].nunique(), len(game_users))
-    logger.info("  overlap users (in both domains): %d", len(overlap_users))
-    logger.info("  movie-only users: %d", len(movie_users - game_users))
-    logger.info("  game-only users: %d", len(game_users - movie_users))
+    logger.info("  overlap users: %d (%.1f%%)", len(overlap_users), overlap_pct)
 
     # 5. Save parquet files
     movies_df = items[items["domain"] == "movie"].copy()
@@ -392,13 +410,21 @@ def build_movie_game_dataset(
     movies_df.to_parquet(OUTPUT_DIR / "movies.parquet", compression="snappy")
     games_df.to_parquet(OUTPUT_DIR / "games.parquet", compression="snappy")
 
-    # Cross-domain ratings (same as all ratings here — no overlap filter applied)
     filtered_ratings.to_parquet(OUTPUT_DIR / "cross_domain_ratings.parquet", compression="snappy")
+
+    cohort_parts = []
+    if min_user_interactions > 0:
+        cohort_parts.append(f"users >= {min_user_interactions} total interactions")
+    else:
+        cohort_parts.append("no user k-core filter")
+    if sample_users:
+        cohort_parts.append(f"sampled to ~{sample_users // 1000}K users")
+    cohort_filter = ", ".join(cohort_parts)
 
     metadata = {
         "processing_date": datetime.now().isoformat(),
         "pair": "movie_game",
-        "cohort_filter": "users >= 10 total interactions, no overlap filter",
+        "cohort_filter": cohort_filter,
         "total_users": n_users,
         "total_items": n_items,
         "total_ratings": n_ratings,
@@ -409,10 +435,10 @@ def build_movie_game_dataset(
         "n_movie_users": len(movie_users),
         "n_game_users": len(game_users),
         "overlap_users": int(len(overlap_users)),
+        "overlap_pct": overlap_pct,
         "movie_only_users": len(movie_users - game_users),
         "game_only_users": len(game_users - movie_users),
-        "user_k_core": MIN_USER_INTERACTIONS,
-        "user_k_core_type": "total (across both domains)",
+        "user_k_core": min_user_interactions,
         "movie_item_k_core": MOVIE_MIN_ITEM_INTERACTIONS,
         "game_item_k_core": GAME_MIN_ITEM_INTERACTIONS,
     }
@@ -431,7 +457,15 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Build processed movie_game parquet dataset.")
     parser.add_argument("--force-reprocess", action="store_true", help="Force re-processing even if parquets exist")
+    parser.add_argument("--min-user-interactions", type=int, default=MIN_USER_INTERACTIONS,
+                        help="Min total interactions per user (0 to skip)")
+    parser.add_argument("--sample-users", type=int, default=None,
+                        help="Subsample to N users preserving overlap ratio")
     args = parser.parse_args()
 
-    ratings, items, metadata = build_movie_game_dataset(force_reprocess=args.force_reprocess)
+    ratings, items, metadata = build_movie_game_dataset(
+        force_reprocess=args.force_reprocess,
+        min_user_interactions=args.min_user_interactions,
+        sample_users=args.sample_users,
+    )
     logger.info("Done. %d users, %d ratings", metadata["total_users"], metadata["total_ratings"])
