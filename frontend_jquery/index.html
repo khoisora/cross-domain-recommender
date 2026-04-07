@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CrossRec — Hybrid Movie & Game Recommender</title>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; background: #0a0a0f; color: #e5e5e5; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+
+    /* Layout */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+    .hidden { display: none !important; }
+
+    /* Nav */
+    .nav { position: sticky; top: 0; z-index: 50; background: rgba(10,10,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid #1e1e2e; padding: 12px 20px; }
+    .nav-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 20px; font-weight: 700; background: linear-gradient(90deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; }
+    .nav-user { display: flex; align-items: center; gap: 12px; font-size: 14px; color: #9ca3af; }
+    .btn { padding: 6px 14px; border-radius: 8px; border: 1px solid #374151; background: transparent; color: #d1d5db; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+    .btn:hover { background: #1f2937; }
+    .btn-primary { background: linear-gradient(135deg, #4f46e5, #7c3aed); border: none; color: white; }
+    .btn-primary:hover { opacity: 0.9; }
+
+    /* Hero */
+    .hero { text-align: center; padding: 60px 20px 40px; }
+    .hero h1 { font-size: 48px; font-weight: 800; background: linear-gradient(90deg, #60a5fa, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+    .hero p { color: #9ca3af; font-size: 16px; margin-bottom: 4px; }
+    .hero .sub { font-size: 13px; color: #6b7280; }
+
+    /* Group tabs */
+    .group-tabs { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 24px 0 8px; }
+    .group-tab { padding: 8px 16px; border-radius: 20px; border: 1px solid #374151; background: transparent; color: #9ca3af; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+    .group-tab.active { background: #4f46e5; border-color: #4f46e5; color: white; }
+    .group-tab .count { background: rgba(255,255,255,0.15); border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 4px; }
+    .group-desc { text-align: center; font-size: 12px; color: #6b7280; font-style: italic; margin: 8px 0 20px; }
+
+    /* User grid */
+    .user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 40px; }
+    .user-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; border: 1px solid #1e1e2e; background: #12121a; cursor: pointer; transition: all 0.2s; }
+    .user-card:hover { border-color: rgba(99,102,241,0.5); background: #1a1a2e; }
+    .user-avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #4f46e5, #7c3aed); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .user-info h3 { font-size: 14px; font-weight: 600; color: #e5e5e5; }
+    .user-info p { font-size: 12px; color: #818cf8; }
+    .user-info .meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    /* Search */
+    .search-bar { max-width: 600px; margin: 0 auto; position: relative; }
+    .search-bar input { width: 100%; padding: 10px 16px; border-radius: 10px; border: 1px solid #374151; background: #0a0a14; color: white; font-size: 14px; outline: none; }
+    .search-bar input:focus { border-color: #4f46e5; }
+    .search-results { position: absolute; top: 100%; left: 0; right: 0; background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; max-height: 400px; overflow-y: auto; z-index: 30; margin-top: 4px; }
+    .search-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; cursor: pointer; transition: background 0.15s; }
+    .search-item:hover { background: #1a1a2e; }
+    .search-item .domain-icon { font-size: 16px; }
+    .search-item .title { font-size: 13px; color: #e5e5e5; flex: 1; }
+    .search-item .rating { font-size: 11px; color: #fbbf24; }
+
+    /* Recommendation rows */
+    .rec-section { margin-bottom: 32px; }
+    .rec-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 0 4px; }
+    .rec-header h2 { font-size: 17px; font-weight: 700; color: white; }
+    .model-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 500; background: rgba(99,102,241,0.2); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3); }
+    .rec-header .subtitle { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    /* Domain lanes */
+    .domain-lane { position: relative; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; overflow: hidden; }
+    .domain-lane.movie { background: linear-gradient(90deg, rgba(30,58,138,0.35), rgba(30,58,138,0.1), transparent); border-left: 3px solid rgba(96,165,250,0.5); }
+    .domain-lane.game { background: linear-gradient(90deg, rgba(88,28,135,0.35), rgba(88,28,135,0.1), transparent); border-left: 3px solid rgba(167,139,250,0.5); }
+    .lane-watermark { position: absolute; left: -10px; top: 50%; transform: translateY(-50%); font-size: 120px; opacity: 0.06; pointer-events: none; z-index: 0; }
+    .lane-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; position: relative; z-index: 1; }
+    .lane-label.movie { color: #60a5fa; }
+    .lane-label.game { color: #a78bfa; }
+    .lane-count { padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: 400; }
+    .lane-count.movie { background: rgba(96,165,250,0.2); color: #93c5fd; }
+    .lane-count.game { background: rgba(167,139,250,0.2); color: #c4b5fd; }
+
+    /* Card scroll */
+    .card-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; position: relative; z-index: 1; }
+    .card-scroll::-webkit-scrollbar { height: 4px; }
+    .card-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+
+    /* Item cards */
+    .item-card { width: 160px; min-width: 160px; border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.2s; }
+    .item-card.movie { border: 1px solid rgba(59,130,246,0.3); }
+    .item-card.game { border: 1px solid rgba(139,92,246,0.3); }
+    .item-card:hover.movie { border-color: rgba(59,130,246,0.6); transform: translateY(-2px); }
+    .item-card:hover.game { border-color: rgba(139,92,246,0.6); transform: translateY(-2px); }
+    .item-card .img-wrap { width: 100%; aspect-ratio: 3/4; background: #1a1a2e; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+    .item-card .img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+    .item-card .placeholder { font-size: 36px; color: #374151; }
+    .item-card .domain-badge { position: absolute; top: 6px; left: 6px; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+    .domain-badge.movie { background: rgba(37,99,235,0.9); color: #dbeafe; }
+    .domain-badge.game { background: rgba(124,58,237,0.9); color: #ede9fe; }
+    .item-card .card-body { padding: 8px; background: #12121a; }
+    .item-card .card-title { font-size: 11px; font-weight: 600; color: #e5e5e5; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .item-card .card-rating { font-size: 10px; color: #fbbf24; margin-top: 4px; }
+
+    /* Item detail */
+    .detail-wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px; }
+    .detail-header { display: flex; gap: 24px; margin-bottom: 32px; }
+    .detail-poster { width: 200px; min-width: 200px; aspect-ratio: 3/4; background: #1a1a2e; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .detail-poster img { width: 100%; height: 100%; object-fit: cover; }
+    .detail-info h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+    .detail-info .domain-tag { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; }
+    .detail-info .desc { font-size: 13px; color: #9ca3af; line-height: 1.6; margin-bottom: 16px; }
+    .detail-meta { font-size: 12px; color: #6b7280; display: flex; gap: 16px; margin-bottom: 16px; }
+
+    /* Star rating */
+    .star-rating { display: flex; gap: 4px; margin-bottom: 8px; }
+    .star-rating .star { font-size: 24px; cursor: pointer; color: #374151; transition: color 0.15s; }
+    .star-rating .star.active { color: #fbbf24; }
+    .star-rating .star:hover { color: #f59e0b; }
+    .rating-msg { font-size: 12px; color: #22c55e; height: 18px; }
+
+    /* Similar section */
+    .similar-section { margin-top: 32px; }
+    .similar-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .similar-section .sbert-tag { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 500; }
+    .similar-section .sbert-tag.game { background: rgba(139,92,246,0.2); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); }
+    .similar-section .sbert-tag.movie { background: rgba(59,130,246,0.2); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+    .similar-section p { font-size: 12px; color: #6b7280; margin-bottom: 12px; }
+    .similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+
+    /* Loading */
+    .spinner { width: 32px; height: 32px; border: 3px solid #1e1e2e; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.6s linear infinite; margin: 40px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 32px; }
+      .detail-header { flex-direction: column; }
+      .detail-poster { width: 100%; max-width: 240px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav hidden" id="nav">
+    <div class="nav-inner">
+      <span class="logo" id="nav-logo">CrossRec</span>
+      <div class="nav-user">
+        <span id="nav-username"></span>
+        <button class="btn" id="btn-search" onclick="toggleSearch()">Search</button>
+        <button class="btn" id="btn-refresh" onclick="triggerRetrain()">Refresh Models</button>
+        <button class="btn" onclick="goHome()">Log Out</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- PAGES -->
+  <div id="page-home"></div>
+  <div id="page-recs" class="hidden"></div>
+  <div id="page-detail" class="hidden"></div>
+
+  <script>
+    const API = 'http://localhost:8000';
+    let currentUser = null;
+    let allUsers = [];
+
+    // ── ROUTING ─────────────────────────────────────────────
+    function showPage(page) {
+      $('#page-home, #page-recs, #page-detail').addClass('hidden');
+      $(`#page-${page}`).removeClass('hidden');
+      $('#nav').toggleClass('hidden', page === 'home');
+      window.scrollTo(0, 0);
+    }
+
+    function goHome() {
+      currentUser = null;
+      showPage('home');
+      loadHome();
+    }
+
+    function selectUser(user) {
+      currentUser = user;
+      $('#nav-username').text(user.name);
+      showPage('recs');
+      loadRecommendations(user.id);
+    }
+
+    function openItem(externalId) {
+      showPage('detail');
+      loadItemDetail(externalId);
+    }
+
+    // ── HOME PAGE ───────────────────────────────────────────
+    const GROUP_META = {
+      balanced:    { label: 'Balanced',    desc: 'Active in both movies & games — LightGCN+cooc performs best' },
+      movie_heavy: { label: 'Movie Heavy', desc: 'Rich movie history, few games — CDR models transfer movie preferences' },
+      cold_start:  { label: 'Cold Start',  desc: 'Zero game history — EMCDR+cooc provides cold-start recommendations' },
+      game_heavy:  { label: 'Game Heavy',  desc: 'Primarily game players — LightGCN graph convolution is most effective' },
+    };
+
+    let activeGroup = 'balanced';
+
+    function loadHome() {
+      const html = `
+        <div class="hero">
+          <h1>CrossRec</h1>
+          <p>Hybrid Movie & Game Recommender</p>
+          <p class="sub">Powered by LightGCN, EMCDR, PTUPCDR, SBERT, and Co-occurrence Reranking</p>
+        </div>
+        <div class="container">
+          <div class="search-bar" style="margin-bottom:32px">
+            <input type="text" id="home-search" placeholder="Search movies & games..." oninput="homeSearch(this.value)">
+            <div class="search-results hidden" id="home-search-results"></div>
+          </div>
+          <div class="group-tabs" id="group-tabs"></div>
+          <div class="group-desc" id="group-desc"></div>
+          <div class="user-grid" id="user-grid"></div>
+        </div>`;
+      $('#page-home').html(html);
+
+      $.getJSON(`${API}/api/users`, function(users) {
+        allUsers = users;
+        renderGroupTabs();
+        renderUsers();
+      });
+    }
+
+    function renderGroupTabs() {
+      let html = '';
+      for (const [key, meta] of Object.entries(GROUP_META)) {
+        const count = allUsers.filter(u => u.group === key).length;
+        const cls = key === activeGroup ? 'active' : '';
+        html += `<button class="group-tab ${cls}" onclick="switchGroup('${key}')">${meta.label}<span class="count">${count}</span></button>`;
+      }
+      $('#group-tabs').html(html);
+      $('#group-desc').text(GROUP_META[activeGroup]?.desc || '');
+    }
+
+    function switchGroup(key) {
+      activeGroup = key;
+      renderGroupTabs();
+      renderUsers();
+    }
+
+    function renderUsers() {
+      const filtered = allUsers.filter(u => u.group === activeGroup).slice(0, 20);
+      let html = '';
+      for (const u of filtered) {
+        html += `
+          <div class="user-card" onclick='selectUser(${JSON.stringify(u).replace(/'/g,"&#39;")})'>
+            <div class="user-avatar">${u.avatar || '?'}</div>
+            <div class="user-info">
+              <h3>${esc(u.name)}</h3>
+              <p>${esc(u.taste_summary || '')}</p>
+              <div class="meta">${u.total_ratings} ratings</div>
+            </div>
+          </div>`;
+      }
+      $('#user-grid').html(html || '<p style="color:#6b7280;text-align:center">No users in this group</p>');
+    }
+
+    function homeSearch(q) {
+      if (q.length < 2) { $('#home-search-results').addClass('hidden').empty(); return; }
+      $.getJSON(`${API}/api/items/search?q=${encodeURIComponent(q)}&limit=15`, function(data) {
+        let html = '';
+        for (const it of data.items) {
+          html += `<div class="search-item" onclick="openItem('${it.external_id}')">
+            <span class="domain-icon">${it.domain === 'movie' ? '🎬' : '🎮'}</span>
+            <span class="title">${esc(it.title)}</span>
+            ${it.avg_rating ? `<span class="rating">★${it.avg_rating.toFixed(1)}</span>` : ''}
+          </div>`;
+        }
+        $('#home-search-results').html(html).removeClass('hidden');
+      });
+    }
+
+    // ── RECOMMENDATIONS PAGE ────────────────────────────────
+    function loadRecommendations(userId) {
+      $('#page-recs').html('<div class="spinner"></div>');
+      $.getJSON(`${API}/api/recommendations/${userId}`, function(data) {
+        let html = '<div class="container" style="padding-top:16px;padding-bottom:40px">';
+
+        // Search bar
+        html += `<div class="search-bar" style="margin-bottom:24px">
+          <input type="text" id="rec-search" placeholder="Search movies & games..." oninput="recSearch(this.value)">
+          <div class="search-results hidden" id="rec-search-results"></div>
+        </div>`;
+
+        for (const row of data.rows) {
+          html += renderRecRow(row);
+        }
+        html += '</div>';
+        $('#page-recs').html(html);
+      });
+    }
+
+    function renderRecRow(row) {
+      const movies = row.items.filter(i => i.domain === 'movie');
+      const games = row.items.filter(i => i.domain === 'game' || !i.domain);
+      const tag = row.model_tag ? `<span class="model-tag">${esc(row.model_tag)}</span>` : '';
+
+      let html = `<div class="rec-section">
+        <div class="rec-header">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <h2>${esc(row.title)}</h2>${tag}
+            </div>
+            <div class="subtitle">${esc(row.subtitle)}</div>
+          </div>
+        </div>`;
+
+      if (games.length > 0) html += renderLane(games, 'game');
+      if (movies.length > 0) html += renderLane(movies, 'movie');
+
+      html += '</div>';
+      return html;
+    }
+
+    function renderLane(items, domain) {
+      const isMovie = domain === 'movie';
+      const watermark = isMovie ? '🎬' : '🎮';
+      const label = isMovie ? 'Movies' : 'Games';
+      const cls = isMovie ? 'movie' : 'game';
+
+      let cards = '';
+      for (const it of items) {
+        cards += renderCard(it);
+      }
+
+      return `<div class="domain-lane ${cls}">
+        <span class="lane-watermark">${watermark}</span>
+        <div class="lane-label ${cls}">
+          ${label}
+          <span class="lane-count ${cls}">${items.length}</span>
+        </div>
+        <div class="card-scroll">${cards}</div>
+      </div>`;
+    }
+
+    function renderCard(it) {
+      const cls = it.domain === 'movie' ? 'movie' : 'game';
+      const img = it.image_url
+        ? `<img src="${it.image_url}" alt="" loading="lazy">`
+        : `<span class="placeholder">${it.domain === 'movie' ? '🎬' : '🎮'}</span>`;
+
+      return `<div class="item-card ${cls}" onclick="openItem('${it.external_id}')">
+        <div class="img-wrap">
+          ${img}
+          <span class="domain-badge ${cls}">${it.domain}</span>
+        </div>
+        <div class="card-body">
+          <div class="card-title">${esc(it.title)}</div>
+          ${it.avg_rating ? `<div class="card-rating">★ ${it.avg_rating.toFixed(1)}</div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    function recSearch(q) {
+      if (q.length < 2) { $('#rec-search-results').addClass('hidden').empty(); return; }
+      $.getJSON(`${API}/api/items/search?q=${encodeURIComponent(q)}&limit=15`, function(data) {
+        let html = '';
+        for (const it of data.items) {
+          html += `<div class="search-item" onclick="openItem('${it.external_id}')">
+            <span class="domain-icon">${it.domain === 'movie' ? '🎬' : '🎮'}</span>
+            <span class="title">${esc(it.title)}</span>
+          </div>`;
+        }
+        $('#rec-search-results').html(html).removeClass('hidden');
+      });
+    }
+
+    function toggleSearch() {
+      // Focus the search input on rec page
+      const el = document.getElementById('rec-search');
+      if (el) el.focus();
+    }
+
+    // ── ITEM DETAIL PAGE ────────────────────────────────────
+    function loadItemDetail(externalId) {
+      $('#page-detail').html('<div class="spinner"></div>');
+      const uid = currentUser ? currentUser.id : '';
+      $.getJSON(`${API}/api/items/${externalId}?user_id=${uid}`, function(item) {
+        const isMovie = item.domain === 'movie';
+        const tagCls = isMovie ? 'movie' : 'game';
+        const tagBg = isMovie ? 'background:rgba(37,99,235,0.9);color:#dbeafe' : 'background:rgba(124,58,237,0.9);color:#ede9fe';
+        const img = item.image_url
+          ? `<img src="${item.image_url}" alt="">`
+          : `<span style="font-size:48px;color:#374151">${isMovie ? '🎬' : '🎮'}</span>`;
+
+        let html = `<div class="detail-wrap">
+          <div style="margin-bottom:16px">
+            <button class="btn" onclick="showPage('recs');loadRecommendations(${currentUser?.id || 0})">← Back</button>
+          </div>
+          <div class="detail-header">
+            <div class="detail-poster">${img}</div>
+            <div class="detail-info">
+              <h1>${esc(item.title)}</h1>
+              <span class="domain-tag" style="${tagBg}">${item.domain.toUpperCase()}</span>
+              <div class="detail-meta">
+                ${item.avg_rating ? `<span>★ ${item.avg_rating.toFixed(1)}</span>` : ''}
+                ${item.rating_count ? `<span>${item.rating_count} ratings</span>` : ''}
+              </div>
+              ${item.description ? `<p class="desc">${esc(item.description)}</p>` : ''}
+              ${currentUser ? renderStarRating(externalId, item.user_rating || 0) : ''}
+            </div>
+          </div>`;
+
+        // Similar Games
+        if (item.similar_games && item.similar_games.length > 0) {
+          html += `<div class="similar-section">
+            <h2>Similar Games <span class="sbert-tag game">SBERT Content Similarity</span></h2>
+            <p>Games with similar themes and descriptions</p>
+            <div class="similar-grid">`;
+          for (const s of item.similar_games) {
+            html += renderCard({...s, rating_count: 0, score: s.similarity, external_id: s.external_id});
+          }
+          html += '</div></div>';
+        }
+
+        // Similar Movies
+        if (item.similar_movies && item.similar_movies.length > 0) {
+          html += `<div class="similar-section">
+            <h2>Similar Movies <span class="sbert-tag movie">SBERT Content Similarity</span></h2>
+            <p>Movies with similar themes — SBERT shared text space enables cross-domain matching</p>
+            <div class="similar-grid">`;
+          for (const s of item.similar_movies) {
+            html += renderCard({...s, rating_count: 0, score: s.similarity, external_id: s.external_id});
+          }
+          html += '</div></div>';
+        }
+
+        html += '</div>';
+        $('#page-detail').html(html);
+      }).fail(function() {
+        $('#page-detail').html('<div class="detail-wrap"><p style="color:#ef4444">Item not found</p><button class="btn" onclick="goHome()">Go Home</button></div>');
+      });
+    }
+
+    function renderStarRating(externalId, currentRating) {
+      let stars = '';
+      for (let i = 1; i <= 5; i++) {
+        const cls = i <= currentRating ? 'active' : '';
+        stars += `<span class="star ${cls}" onclick="submitRating('${externalId}', ${i})">★</span>`;
+      }
+      return `<div class="star-rating" id="stars-${externalId}">${stars}</div>
+              <div class="rating-msg" id="rating-msg"></div>`;
+    }
+
+    function submitRating(externalId, rating) {
+      if (!currentUser) return;
+      // Update stars immediately
+      $(`#stars-${externalId} .star`).each(function(i) {
+        $(this).toggleClass('active', i < rating);
+      });
+      $.ajax({
+        url: `${API}/api/ratings`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ user_id: currentUser.id, external_id: externalId, rating: rating }),
+        success: function(res) {
+          $('#rating-msg').text(res.message);
+          setTimeout(() => $('#rating-msg').text(''), 3000);
+        },
+        error: function() { $('#rating-msg').text('Failed to save rating').css('color','#ef4444'); }
+      });
+    }
+
+    function triggerRetrain() {
+      $('#btn-refresh').text('Retraining...').prop('disabled', true);
+      $.post(`${API}/api/retrain`, function(res) {
+        $('#btn-refresh').text(`Done (${res.elapsed_s}s)`);
+        setTimeout(() => {
+          $('#btn-refresh').text('Refresh Models').prop('disabled', false);
+          if (currentUser) loadRecommendations(currentUser.id);
+        }, 2000);
+      }).fail(function() {
+        $('#btn-refresh').text('Refresh Models').prop('disabled', false);
+      });
+    }
+
+    // ── UTILS ───────────────────────────────────────────────
+    function esc(str) {
+      if (!str) return '';
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Click outside search to close
+    $(document).on('click', function(e) {
+      if (!$(e.target).closest('.search-bar').length) {
+        $('.search-results').addClass('hidden');
+      }
+    });
+
+    // ── INIT ────────────────────────────────────────────────
+    $(function() {
+      $('#nav-logo').on('click', goHome);
+      goHome();
+    });
+  </script>
+</body>
+</html>

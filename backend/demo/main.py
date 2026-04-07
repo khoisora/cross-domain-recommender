@@ -18,9 +18,11 @@ from typing import Optional
 
 from pathlib import Path as _Path
 
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import numpy as np
@@ -132,6 +134,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     stop_retrain_scheduler()
 
 app = FastAPI(title="CrossRec Demo", version="2.0.0", lifespan=lifespan)
+
+# Serve jQuery frontend from /frontend_jquery/
+_JQUERY_DIR = Path(__file__).resolve().parent.parent.parent / "frontend_jquery"
+if _JQUERY_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_JQUERY_DIR)), name="static")
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    return RedirectResponse(url="/static/index.html")
 
 app.add_middleware(
     CORSMiddleware,
