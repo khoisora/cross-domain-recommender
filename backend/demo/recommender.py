@@ -183,7 +183,63 @@ class HybridRecommender:
                         "items": enriched,
                     })
 
-        # ── Row 5: Popularity — "Trending Games" ──
+        # ── Row 5: LightGCN Movies — "Top Movie Picks" ──
+        if s.lgcn_movie_user is not None:
+            movie_user_idx = s.cd_user_to_idx.get(user_ext_id)
+            if movie_user_idx is not None and movie_user_idx < s.lgcn_movie_user.shape[0]:
+                scores = s.lgcn_movie_item @ s.lgcn_movie_user[movie_user_idx]
+                # Add reverse cooc bonus (game→movie)
+                rev_cooc = s.compute_reverse_cooc_scores(user_ext_id)
+                for ext_id, bonus in rev_cooc.items():
+                    idx = s.movie_item_to_idx.get(ext_id)
+                    if idx is not None and idx < len(scores):
+                        scores[idx] += 0.05 * bonus
+                # Exclude rated movies
+                rated_movie_idx = set()
+                for r in s.get_user_rated_items(user_ext_id):
+                    mi = s.movie_item_to_idx.get(r["item_id"])
+                    if mi is not None:
+                        rated_movie_idx.add(mi)
+                norm = _normalise(scores)
+                items = _top_k_excluding(norm, rated_movie_idx, k_per_row + 10)
+                enriched = self._enrich(items, all_seen_ext, k_per_row,
+                    "Collaborative movie recommendation (LightGCN on movie interactions)",
+                    s.movie_items_by_idx)
+                if enriched:
+                    rows.append({
+                        "key": "lightgcn_movies",
+                        "title": "Top Movie Picks",
+                        "subtitle": "LightGCN graph convolution on your movie rating history + game→movie co-occurrence",
+                        "items": enriched,
+                    })
+
+        # ── Row 6: Reverse Cooc — "Movies Fans of Your Games Also Watched" ──
+        rev_scores = s.compute_reverse_cooc_scores(user_ext_id)
+        if rev_scores:
+            scores_arr = np.zeros(len(s.movie_item_to_idx), dtype=np.float32)
+            for ext_id, bonus in rev_scores.items():
+                idx = s.movie_item_to_idx.get(ext_id)
+                if idx is not None and idx < len(scores_arr):
+                    scores_arr[idx] = bonus
+            rated_movie_idx = set()
+            for r in s.get_user_rated_items(user_ext_id):
+                mi = s.movie_item_to_idx.get(r["item_id"])
+                if mi is not None:
+                    rated_movie_idx.add(mi)
+            norm = _normalise(scores_arr)
+            items = _top_k_excluding(norm, rated_movie_idx, k_per_row + 10)
+            enriched = self._enrich(items, all_seen_ext, k_per_row,
+                "Gamers who played your games also watched this movie",
+                s.movie_items_by_idx)
+            if enriched:
+                rows.append({
+                    "key": "reverse_cooc",
+                    "title": "Movies Fans of Your Games Also Watched",
+                    "subtitle": "Game→movie co-occurrence — reverse cross-domain behavioral signal",
+                    "items": enriched,
+                })
+
+        # ── Row 7: Popularity — "Trending Games" ──
         popular = sorted(
             [(it.get("sd_idx"), it.get("rating_count", 0))
              for it in s.items_list
@@ -197,11 +253,37 @@ class HybridRecommender:
         enriched = self._enrich_sd(norm_pop, all_seen_ext, k_per_row,
                                     "Popular with many gamers")
         rows.append({
-            "key": "popular",
+            "key": "popular_games",
             "title": "Trending Games",
             "subtitle": "Most played games — a strong baseline for new users",
             "items": enriched,
         })
+
+        # ── Row 8: Popular Movies ──
+        pop_movies = sorted(
+            [(s.movie_item_to_idx.get(it.get("external_id", "")), it.get("rating_count", 0))
+             for it in s.items_list
+             if it.get("domain") == "movie" and it.get("external_id") in s.movie_item_to_idx],
+            key=lambda x: -x[1],
+        )
+        rated_movie_idx = set()
+        for r in s.get_user_rated_items(user_ext_id):
+            mi = s.movie_item_to_idx.get(r["item_id"])
+            if mi is not None:
+                rated_movie_idx.add(mi)
+        pop_m_items = [(idx, float(count)) for idx, count in pop_movies
+                       if idx is not None and idx not in rated_movie_idx][:k_per_row * 3]
+        if pop_m_items:
+            norm_pop_m = [(idx, _normalise(np.array([s for _, s in pop_m_items]))[i])
+                          for i, (idx, _) in enumerate(pop_m_items)]
+            enriched = self._enrich(norm_pop_m, all_seen_ext, k_per_row,
+                                    "Popular with many viewers", s.movie_items_by_idx)
+            rows.append({
+                "key": "popular_movies",
+                "title": "Trending Movies",
+                "subtitle": "Most watched movies in the catalog",
+                "items": enriched,
+            })
 
         return rows
 

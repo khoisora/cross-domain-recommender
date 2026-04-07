@@ -156,7 +156,7 @@ export default function RecommendationsPage() {
       <nav className="sticky top-0 z-40 border-b border-gray-800/50 bg-[#0a0a0f]/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-4">
-            <Link href={`/recommendations?user=${userId}`} className="text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            <Link href="/" className="text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               CrossRec
             </Link>
             {user && (
@@ -322,8 +322,8 @@ function DomainLane({ items, userId, label, emoji, domain }: {
 
   const isMovie = domain === "movie";
   const bg = isMovie
-    ? "bg-gradient-to-r from-blue-950/30 via-blue-950/10 to-transparent border-l-2 border-blue-500/40"
-    : "bg-gradient-to-r from-purple-950/30 via-purple-950/10 to-transparent border-l-2 border-purple-500/40";
+    ? "bg-gradient-to-r from-blue-950/50 via-blue-950/20 to-blue-950/5 border-l-3 border-blue-400/60"
+    : "bg-gradient-to-r from-purple-950/50 via-purple-950/20 to-purple-950/5 border-l-3 border-purple-400/60";
   const LaneIcon = isMovie ? Film : Gamepad2;
 
   return (
@@ -381,22 +381,12 @@ function RecommendationRowSection({ row, userId }: { row: RecommendationRow; use
   const movies = row.items.filter((it) => it.domain === "movie");
   const games  = row.items.filter((it) => it.domain === "game" || !it.domain);
 
-  const rowIcon: Record<string, string> = {
-    lightgcn_cooc: "🧠", cdr_transfer: "🌉", cooc: "🔗",
-    sbert_games: "🎯", sbert_movies: "🎬", popular: "🔥",
-  };
-
-  // Determine dominant domain for row background tint
-  const dominantDomain = movies.length > games.length ? "movie" : "game";
-  const sectionBg = dominantDomain === "movie"
-    ? "bg-blue-950/10 border border-blue-900/20"
-    : "bg-purple-950/10 border border-purple-900/20";
+  // No emoji icons before titles — clean, professional look
 
   return (
     <section className="px-4 sm:px-6">
-      <div className={`mx-auto max-w-7xl rounded-xl p-4 ${sectionBg}`}>
+      <div className="mx-auto max-w-7xl rounded-xl p-4">
         <div className="mb-3 flex items-center gap-2">
-          <span className="text-xl">{rowIcon[row.key] || "📌"}</span>
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-white">{row.title}</h2>

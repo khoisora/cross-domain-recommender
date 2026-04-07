@@ -296,8 +296,12 @@ async def get_recommendations(user_id: int):
         "lightgcn_cooc": "LightGCN + Co-occurrence",
         "cdr_transfer": "PTUPCDR / EMCDR",
         "cooc": "Co-occurrence Reranking",
-        "sbert": "SBERT (all-MiniLM-L6-v2)",
-        "popular": "Popularity Baseline",
+        "sbert_games": "SBERT (all-MiniLM-L6-v2)",
+        "sbert_movies": "SBERT (all-MiniLM-L6-v2)",
+        "lightgcn_movies": "LightGCN (Movie Domain)",
+        "reverse_cooc": "Reverse Co-occurrence",
+        "popular_games": "Popularity Baseline",
+        "popular_movies": "Popularity Baseline",
     }
     return RecommendationResponse(
         user_id=user_id,
