@@ -273,7 +273,14 @@
     // ── RECOMMENDATIONS PAGE ────────────────────────────────
     function loadRecommendations(userId) {
       $('#page-recs').html('<div class="spinner"></div>');
-      $.getJSON(`${API}/api/recommendations/${userId}`, function(data) {
+
+      // Fetch user profile (for rated items) and recommendations in parallel
+      $.when(
+        $.getJSON(`${API}/api/users/${userId}`),
+        $.getJSON(`${API}/api/recommendations/${userId}`)
+      ).done(function(userData, recData) {
+        const user = userData[0];
+        const data = recData[0];
         let html = '<div class="container" style="padding-top:16px;padding-bottom:40px">';
 
         // Search bar
@@ -281,6 +288,34 @@
           <input type="text" id="rec-search" placeholder="Search movies & games..." oninput="recSearch(this.value)">
           <div class="search-results hidden" id="rec-search-results"></div>
         </div>`;
+
+        // Your Rated Items (collapsible)
+        if (user.ratings && user.ratings.length > 0) {
+          const ratedMovies = user.ratings.filter(r => r.domain === 'movie');
+          const ratedGames = user.ratings.filter(r => r.domain === 'game');
+          html += `<div style="margin-bottom:24px">
+            <div style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:1px solid #1e1e2e;background:#12121a" onclick="$('#rated-content').toggle()">
+              <span style="font-size:15px">⭐</span>
+              <span style="font-size:14px;font-weight:600;color:#e5e5e5">Your Rated Items</span>
+              <span style="background:#1e1e2e;padding:1px 8px;border-radius:10px;font-size:10px;color:#9ca3af">${user.ratings.length}</span>
+            </div>
+            <div id="rated-content" style="display:none;margin-top:8px">`;
+          if (ratedMovies.length > 0) {
+            const movieCards = ratedMovies.map(r => ({
+              external_id: r.external_id || r.item_id, title: r.title, domain: 'movie',
+              image_url: r.image_url || '', avg_rating: null, rating_count: 0, score: r.rating
+            }));
+            html += renderLane(movieCards, 'movie');
+          }
+          if (ratedGames.length > 0) {
+            const gameCards = ratedGames.map(r => ({
+              external_id: r.external_id || r.item_id, title: r.title, domain: 'game',
+              image_url: r.image_url || '', avg_rating: null, rating_count: 0, score: r.rating
+            }));
+            html += renderLane(gameCards, 'game');
+          }
+          html += '</div></div>';
+        }
 
         for (const row of data.rows) {
           html += renderRecRow(row);
