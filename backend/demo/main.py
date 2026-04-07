@@ -100,7 +100,8 @@ class ItemDetail(BaseModel):
     avg_rating: Optional[float] = None
     rating_count: int = 0
     user_rating: Optional[float] = None
-    similar_items: list[SimilarItem] = []
+    similar_games: list[SimilarItem] = []
+    similar_movies: list[SimilarItem] = []
 
 class SearchResponse(BaseModel):
     items: list[ItemOut]
@@ -368,23 +369,46 @@ async def get_item(external_id: str, user_id: Optional[int] = Query(None)):
         except Exception:
             pass
 
-    # SBERT similar items
-    similar: list[SimilarItem] = []
+    # SBERT similar items — split by domain (games + movies)
+    # Precomputed top-20 includes both domains; we also do a live query
+    # for the opposite domain to ensure cross-domain results
+    similar_games: list[SimilarItem] = []
+    similar_movies: list[SimilarItem] = []
     cd_idx = meta.get("cd_idx")
-    if cd_idx is not None and cd_idx < s.content_sim_indices.shape[0]:
-        sim_indices = s.content_sim_indices[cd_idx]
-        sim_scores = s.content_sim_scores[cd_idx]
-        for si, ss in zip(sim_indices, sim_scores):
-            sim_meta = s.cd_items_by_idx.get(int(si), {})
-            if sim_meta and float(ss) > 0.1:
-                similar.append(SimilarItem(
+    if cd_idx is not None and cd_idx < s.content_emb.shape[0]:
+        # Live cosine similarity for this item against all items
+        item_vec = s.content_emb[cd_idx]
+        norm = np.linalg.norm(item_vec)
+        if norm > 0:
+            item_vec = item_vec / norm
+            all_scores = s.content_emb @ item_vec
+            # Get top 30 per domain
+            top_indices = np.argsort(-all_scores)
+            seen = 0
+            for si in top_indices:
+                si = int(si)
+                if si == cd_idx:
+                    continue
+                score = float(all_scores[si])
+                if score < 0.1:
+                    break
+                sim_meta = s.cd_items_by_idx.get(si, {})
+                if not sim_meta:
+                    continue
+                item = SimilarItem(
                     external_id=sim_meta.get("external_id", ""),
                     title=sim_meta.get("title", ""),
                     domain=sim_meta.get("domain", ""),
                     image_url=sim_meta.get("image_url") or "",
                     avg_rating=sim_meta.get("avg_rating"),
-                    similarity=round(float(ss), 3),
-                ))
+                    similarity=round(score, 3),
+                )
+                if sim_meta.get("domain") == "game" and len(similar_games) < 12:
+                    similar_games.append(item)
+                elif sim_meta.get("domain") == "movie" and len(similar_movies) < 12:
+                    similar_movies.append(item)
+                if len(similar_games) >= 12 and len(similar_movies) >= 12:
+                    break
 
     return ItemDetail(
         idx=meta.get("idx", 0),
@@ -396,7 +420,8 @@ async def get_item(external_id: str, user_id: Optional[int] = Query(None)):
         avg_rating=meta.get("avg_rating"),
         rating_count=meta.get("rating_count") or 0,
         user_rating=user_rating,
-        similar_items=similar[:12],
+        similar_games=similar_games,
+        similar_movies=similar_movies,
     )
 
 

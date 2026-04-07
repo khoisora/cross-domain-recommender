@@ -45,18 +45,17 @@ export default function ItemDetailPage() {
     setCrossDomainSimilar([]);
     getItem(itemId, userId || undefined).then((it) => {
       setItem(it);
-      // Restore user's saved rating
       if (it?.user_rating) setUserRating(it.user_rating);
-      // SBERT similar items are included in the item detail response
-      if (it?.similar_items) {
-        setSbertSimilar(it.similar_items.map((s: any) => ({
-          idx: 0, external_id: s.external_id, title: s.title,
-          domain: s.domain, image_url: s.image_url || "",
-          avg_rating: s.avg_rating, rating_count: 0,
-          score: s.similarity, reason: `${(s.similarity * 100).toFixed(0)}% similar (SBERT)`,
-          description: "", genres: "", tags: "", year: "",
-        })));
-      }
+      // SBERT similar items split by domain
+      const mapSimilar = (arr: any[]) => arr.map((s: any) => ({
+        idx: 0, external_id: s.external_id, title: s.title,
+        domain: s.domain, image_url: s.image_url || "",
+        avg_rating: s.avg_rating, rating_count: 0,
+        score: s.similarity, reason: `${(s.similarity * 100).toFixed(0)}% similar (SBERT)`,
+        description: "", genres: "", tags: "", year: "",
+      }));
+      setSbertSimilar(mapSimilar(it?.similar_games || []));
+      setCrossDomainSimilar(mapSimilar(it?.similar_movies || []));
     }).catch(() => null).finally(() => setLoading(false));
   }, [itemId, userId]);
 
@@ -263,38 +262,33 @@ export default function ItemDetailPage() {
         </div>
 
 
-        {/* SBERT Semantically Similar Items */}
+        {/* Similar Games (SBERT) */}
         {sbertSimilar.length > 0 && (
           <div className="mt-10">
             <div className="mb-4 flex items-center gap-3">
-              <h2 className="text-xl font-bold text-white">Semantically Similar</h2>
-              <span className="rounded-full border border-indigo-800/50 bg-indigo-950/40 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-400">
-                SBERT
+              <h2 className="text-xl font-bold text-white">Similar Games</h2>
+              <span className="rounded-full border border-purple-800/50 bg-purple-950/40 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-400">
+                SBERT Content Similarity
               </span>
             </div>
             <p className="mb-4 text-xs text-gray-500">
-              Items with similar descriptions, genres, and themes — powered by sentence embeddings
+              Games with similar descriptions, genres, and themes — powered by sentence-BERT embeddings
             </p>
             <SimilarGrid items={sbertSimilar} userId={userId} />
           </div>
         )}
 
-        {/* Cross-Domain Similar Items */}
-        {crossDomainSimilar.length > 0 && item && (
+        {/* Similar Movies (SBERT) */}
+        {crossDomainSimilar.length > 0 && (
           <div className="mt-10">
             <div className="mb-4 flex items-center gap-3">
-              <h2 className="text-xl font-bold text-white">
-                {item.domain === "movie" ? "🎮 Similar Games" : "🎬 Similar Movies"}
-              </h2>
-              <span className="rounded-full border border-emerald-800/50 bg-emerald-950/40 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
-                Cross-Domain
+              <h2 className="text-xl font-bold text-white">Similar Movies</h2>
+              <span className="rounded-full border border-blue-800/50 bg-blue-950/40 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-400">
+                SBERT Content Similarity
               </span>
             </div>
             <p className="mb-4 text-xs text-gray-500">
-              {item.domain === "movie"
-                ? "Games with themes and vibes similar to this movie"
-                : "Movies with themes and vibes similar to this game"}
-              {" "}— semantically matched across domains
+              Movies with similar themes and descriptions — SBERT operates in a shared text space across domains
             </p>
             <SimilarGrid items={crossDomainSimilar} userId={userId} />
           </div>

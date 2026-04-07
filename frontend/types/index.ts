@@ -61,7 +61,8 @@ export interface ItemDetail {
   rating_count: number;
   year: string;
   user_rating?: number;
-  similar_items?: SimilarItem[];
+  similar_games?: SimilarItem[];
+  similar_movies?: SimilarItem[];
 }
 
 export interface SimilarItem {
