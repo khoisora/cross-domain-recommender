@@ -1,88 +1,96 @@
 {
   "model": "MF_BPR",
   "lesson": 3,
-  "description": "BPR pairwise, emb=64, epochs=60, lr=0.005, reg=0.01",
-  "time_completed": "2026-04-06T09:49:26.422867",
-  "train_time_s": 11.327685117721558,
+  "description": "MF-BPR single-domain LLO, L3 overlap dataset",
+  "time_completed": "2026-04-07T15:09:50.346311",
+  "train_time_s": 0,
   "dataset_info": {
-    "domain_pair": "movie_game",
+    "domain_pair": "movie_game_overlap",
     "cohort_filter": "users >= 10 total interactions, overlap users (movies >= 5, games >= 1)",
-    "n_users": 26487,
-    "n_movie_interactions": 597023,
-    "n_game_interactions": 129332,
+    "n_users": 19880,
+    "n_movie_interactions": 430736,
+    "n_game_interactions": 87613,
     "split": "leave-last-out on games"
   },
-  "recall@10": 0.012,
-  "ndcg@10": 0.005515740812704564,
+  "recall@10": 0.0445,
+  "ndcg@10": 0.022400400975575087,
   "subgroups": {
     "super_cold_users": {
-      "recall@10": 0.009983361064891847,
-      "ndcg@10": 0.0035329053703158377
+      "recall@10": 0.0033500837520938024,
+      "ndcg@10": 0.002512562814070352
     },
     "one_shot_target_user": {
-      "recall@10": 0.012618296529968454,
-      "ndcg@10": 0.006593359059879712
+      "recall@10": 0.09904153354632587,
+      "ndcg@10": 0.05430154341420556
     },
     "one_shot_unpopular_target_user": {
       "recall@10": 0.0,
       "ndcg@10": 0.0
     },
     "high_source_low_target": {
-      "recall@10": 0.013108614232209739,
-      "ndcg@10": 0.006221434703924789
+      "recall@10": 0.03795066413662239,
+      "ndcg@10": 0.02072503270339634
     },
     "high_source_unpopular_low_target": {
       "recall@10": 0.0,
       "ndcg@10": 0.0
     },
     "movie_heavy": {
-      "recall@10": 0.016835016835016835,
-      "ndcg@10": 0.007251863997798473
-    },
-    "game_heavy": {
-      "recall@10": 0.0,
-      "ndcg@10": 0.0
+      "recall@10": 0.059006211180124224,
+      "ndcg@10": 0.026606092421614623
     },
     "balanced": {
-      "recall@10": 0.019704433497536946,
-      "ndcg@10": 0.010746987864180572
+      "recall@10": 0.06459948320413436,
+      "ndcg@10": 0.0288656845484568
+    },
+    "game_heavy": {
+      "recall@10": 0.019230769230769232,
+      "ndcg@10": 0.00641025641025641
+    },
+    "sparse_target": {
+      "recall@10": 0.04247104247104247,
+      "ndcg@10": 0.02406526582686415
     }
   },
   "n_eval_users": 2000,
-  "sampled_hr@10": 0.1755,
-  "sampled_ndcg@10": 0.07602848850144188,
+  "sampled_hr@10": 0.41,
+  "sampled_ndcg@10": 0.19177222354999748,
   "sampled_subgroups": {
     "super_cold_users": {
-      "sampled_hr@10": 0.1464226289517471,
-      "sampled_ndcg@10": 0.06046899760867297
+      "sampled_hr@10": 0.1457286432160804,
+      "sampled_ndcg@10": 0.057288214120132075
     },
     "one_shot_target_user": {
-      "sampled_hr@10": 0.1861198738170347,
-      "sampled_ndcg@10": 0.07992472495051806
+      "sampled_hr@10": 0.5591054313099042,
+      "sampled_ndcg@10": 0.2797034657235084
     },
     "one_shot_unpopular_target_user": {
-      "sampled_hr@10": 0.16,
-      "sampled_ndcg@10": 0.06624519110660688
+      "sampled_hr@10": 0.2857142857142857,
+      "sampled_ndcg@10": 0.12122305662067312
     },
     "high_source_low_target": {
-      "sampled_hr@10": 0.16666666666666666,
-      "sampled_ndcg@10": 0.06967314963027615
+      "sampled_hr@10": 0.29411764705882354,
+      "sampled_ndcg@10": 0.13847652345957662
     },
     "high_source_unpopular_low_target": {
-      "sampled_hr@10": 0.09375,
-      "sampled_ndcg@10": 0.04121289238968689
+      "sampled_hr@10": 0.2631578947368421,
+      "sampled_ndcg@10": 0.10938778885402352
     },
     "movie_heavy": {
-      "sampled_hr@10": 0.1717171717171717,
-      "sampled_ndcg@10": 0.078856587232174
-    },
-    "game_heavy": {
-      "sampled_hr@10": 0.23529411764705882,
-      "sampled_ndcg@10": 0.10539507957131845
+      "sampled_hr@10": 0.5372670807453416,
+      "sampled_ndcg@10": 0.2550953541775238
     },
     "balanced": {
-      "sampled_hr@10": 0.20689655172413793,
-      "sampled_ndcg@10": 0.09508422331103958
+      "sampled_hr@10": 0.6046511627906976,
+      "sampled_ndcg@10": 0.28180789397696987
+    },
+    "game_heavy": {
+      "sampled_hr@10": 0.5192307692307693,
+      "sampled_ndcg@10": 0.23553434754954208
+    },
+    "sparse_target": {
+      "sampled_hr@10": 0.4015444015444015,
+      "sampled_ndcg@10": 0.19251907122990233
     }
   },
   "n_sampled_users": 2000

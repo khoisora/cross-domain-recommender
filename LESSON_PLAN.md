@@ -535,8 +535,6 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 
 -   Popularity — rank by global game popularity (surprisingly strong at cold-start: first game choice is often a well-known title)
 
-**Also run**: LightGCN + movie→game co-occurrence rerank, gated to cold users only (`--cooc-max-target-train 0`). Port `ml/scripts/benchmarks/cooc_rerank.py` from old repo. This is a test-time-only patch that injects movie→game co-preference signal without retraining.
-
 **Report**: Cold-user evaluation only. Full-rank Recall@10 + NDCG@10 AND sampled HR@10 + NDCG@10 (both, because full-rank understates CDR advantage here). **Plot**: `--lesson 6` → side-by-side bar chart, cold users only. Color-code bars by type (single-domain = grey, cross-domain = blue, baseline = orange). Annotation box shows warm/cold split ratio and n_cold_users. Include a second small panel comparing full-rank vs sampled NDCG@10 for the same models, to illustrate why both protocols are needed.
 
 **→ Lesson 7**: Lessons 1–6 are purely collaborative. Lesson 7 adds item text (SBERT) as a content bridge for cases where collaborative overlap is too thin.
@@ -627,25 +625,25 @@ Justified by
 
 **EMCDR + cooc** (popularity blend as floor)
 
-L6 cooc: EMCDR most robust at true cold-start (global MLP mapping works without game edges); PTUPCDR needs game history to activate few-shot blend
+L6: EMCDR most robust at true cold-start (global MLP mapping works without game edges); PTUPCDR needs game history to activate few-shot blend. L8: cooc adds small additional boost (+2%)
 
 1–2 games, rich movies
 
 **PTUPCDR + cooc**
 
-L4, L6, L3 cooc: few-shot blend activates once game edges exist; cooc adds +29% on LLO
+L4, L6: few-shot blend activates once game edges exist. L8: cooc adds +13% on LLO
 
 3–9 games
 
 **LightGCN + cooc**
 
-L2, L4, L3 cooc: best LLO base (+9% from cooc); movie transfer via cooc fills gap game graph alone misses
+L2, L4: best LLO base model. L8: cooc +5%, fills movie→game gap graph alone misses
 
 10+ games
 
 **LightGCN + cooc**
 
-L2, L3 cooc: cooc consistently helps even with rich game history
+L2: LightGCN dominates. L8: cooc consistently helps even with rich game history
 
 Niche / unpopular games
 
