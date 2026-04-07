@@ -13,6 +13,7 @@ export interface SampleUser {
   total_ratings: number;
   avg_rating: number;
   is_sample?: boolean;
+  group?: string;
 }
 
 export interface UserProfile extends SampleUser {
@@ -59,6 +60,16 @@ export interface ItemDetail {
   avg_rating: number | null;
   rating_count: number;
   year: string;
+  similar_items?: SimilarItem[];
+}
+
+export interface SimilarItem {
+  external_id: string;
+  title: string;
+  domain: Domain;
+  image_url: string;
+  avg_rating: number | null;
+  similarity: number;
 }
 
 export interface SearchResponse {
@@ -78,6 +89,7 @@ export interface RecommendationRow {
   key: string;
   title: string;
   subtitle: string;
+  model_tag: string;
   items: ItemOut[];
 }
 
@@ -99,7 +111,7 @@ export interface RetrainResponse {
 
 export interface RatingRequest {
   user_id: number;
-  item_idx: number;
+  external_id: string;
   rating: number;
 }
 

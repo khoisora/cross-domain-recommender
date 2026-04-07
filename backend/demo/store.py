@@ -141,6 +141,9 @@ class DemoStore:
             if cd_idx is not None:
                 self.cd_game_indices.add(cd_idx)
 
+        # Lookup by DB idx (for backward compat with frontend)
+        self.items_by_db_idx: dict[int, dict] = {c["idx"]: c for c in self.items_list if "idx" in c}
+
         self.loaded = True
         logger.info(
             "Store loaded: SD=%d users, %d items | CD=%d items | content=%s | cooc=%d movies",

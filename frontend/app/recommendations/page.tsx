@@ -219,7 +219,7 @@ export default function RecommendationsPage() {
           {searchResults.length > 0 && (
             <div className="mx-auto mt-3 max-w-3xl space-y-1 max-h-80 overflow-y-auto">
               {searchResults.map((item) => (
-                <Link key={item.idx} href={`/item/${item.idx}?user=${userId}`} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#1a1a2e]">
+                <Link key={item.idx} href={`/item/${item.external_id}?user=${userId}`} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#1a1a2e]">
                   <span className="text-lg">{item.domain === "movie" ? "🎬" : "🎮"}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate">{item.title}</p>
@@ -265,7 +265,7 @@ export default function RecommendationsPage() {
               {user.ratings.map((r) => (
                 <Link
                   key={r.item_id}
-                  href={`/item/${r.item_idx ?? 0}?user=${userId}`}
+                  href={`/item/${r.external_id || r.item_id}?user=${userId}`}
                   className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#1a1a2e] transition-colors first:rounded-t-xl last:rounded-b-xl"
                 >
                   <span className="text-base shrink-0">{r.domain === "movie" ? "🎬" : "🎮"}</span>
@@ -349,12 +349,11 @@ function DomainLane({ items, userId, label, emoji }: {
 
 function RecommendationRowSection({ row, userId }: { row: RecommendationRow; userId: number }) {
   const movies = row.items.filter((it) => it.domain === "movie");
-  const games  = row.items.filter((it) => it.domain === "game");
+  const games  = row.items.filter((it) => it.domain === "game" || !it.domain);
 
   const rowIcon: Record<string, string> = {
-    mf: "⚡", ncf: "🧪", lightgcn: "🧠",
-    cmf: "🔗", emcdr: "🌉", bi_tgcf: "🔄",
-    sbert: "🎯", content_similarity: "🎯", popular: "🔥",
+    lightgcn_cooc: "🧠", cdr_transfer: "🌉", cooc: "🔗",
+    sbert_games: "🎯", sbert_movies: "🎬", popular: "🔥",
   };
 
   return (
@@ -362,8 +361,15 @@ function RecommendationRowSection({ row, userId }: { row: RecommendationRow; use
       <div className="mx-auto max-w-7xl">
         <div className="mb-3 flex items-center gap-2">
           <span className="text-xl">{rowIcon[row.key] || "📌"}</span>
-          <div>
-            <h2 className="text-lg font-bold text-white">{row.title}</h2>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-white">{row.title}</h2>
+              {(row as any).model_tag && (
+                <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-medium text-indigo-300 border border-indigo-500/30">
+                  {(row as any).model_tag}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-500">{row.subtitle}</p>
           </div>
         </div>
@@ -386,7 +392,7 @@ function ItemCard({ item, userId }: { item: ItemOut; userId: number }) {
   const [hovered, setHovered] = useState(false);
 
   return (
-    <Link href={`/item/${item.idx}?user=${userId}`}>
+    <Link href={`/item/${item.external_id}?user=${userId}`}>
       <div
         className="card-hover group relative w-[160px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-gray-800 bg-[#12121a] sm:w-[180px]"
         onMouseEnter={() => setHovered(true)}

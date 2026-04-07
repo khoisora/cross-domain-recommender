@@ -13,8 +13,10 @@ export default function HomePage() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
+  const [activeGroup, setActiveGroup] = useState<string>("balanced");
+
   useEffect(() => {
-    getUsers(20, 30)
+    getUsers()
       .then(setUsers)
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -101,11 +103,45 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* User Selection */}
+      {/* User Selection with Groups */}
       <section className="mx-auto max-w-5xl px-6 pb-24">
         <h2 className="mb-2 text-center text-2xl font-bold">Or Choose a Sample User</h2>
-        <p className="mb-8 text-center text-sm text-gray-500">
-          Each user has a unique taste profile and rating history
+        <p className="mb-6 text-center text-sm text-gray-500">
+          Users are grouped by their interaction profile — different groups trigger different recommendation strategies
+        </p>
+
+        {/* Group Tabs */}
+        <div className="mb-6 flex justify-center gap-2 flex-wrap">
+          {[
+            { key: "balanced", label: "Balanced", emoji: "⚖️", desc: "Active in both movies & games" },
+            { key: "movie_heavy", label: "Movie Heavy", emoji: "🎬", desc: "Rich movie history, few games" },
+            { key: "cold_start", label: "Cold Start", emoji: "❄️", desc: "Movies only, zero game history" },
+            { key: "game_heavy", label: "Game Heavy", emoji: "🎮", desc: "Mostly games" },
+          ].map((g) => (
+            <button
+              key={g.key}
+              onClick={() => setActiveGroup(g.key)}
+              className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                activeGroup === g.key
+                  ? "bg-indigo-600 text-white"
+                  : "border border-gray-700 text-gray-400 hover:border-indigo-500/50 hover:text-white"
+              }`}
+            >
+              <span>{g.emoji}</span>
+              <span>{g.label}</span>
+              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px]">
+                {users.filter((u) => u.group === g.key).length}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Group description */}
+        <p className="mb-4 text-center text-xs text-gray-500 italic">
+          {activeGroup === "balanced" && "These users have both movie and game ratings — LightGCN+cooc performs best"}
+          {activeGroup === "movie_heavy" && "Rich movie history but few games — CDR models (PTUPCDR) transfer movie preferences to game recommendations"}
+          {activeGroup === "cold_start" && "Zero game history — EMCDR+cooc provides cold-start recommendations from movie taste alone"}
+          {activeGroup === "game_heavy" && "Primarily game players — LightGCN graph convolution is most effective"}
         </p>
 
         {loading ? (
@@ -114,21 +150,24 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {users.map((user) => (
+            {users
+              .filter((u) => u.group === activeGroup)
+              .slice(0, 30)
+              .map((user) => (
               <button
                 key={user.id}
                 onClick={() => selectUser(user)}
                 className="group relative flex items-start gap-4 rounded-xl border border-gray-800 bg-[#12121a] p-5 text-left transition-all hover:border-indigo-500/50 hover:bg-[#1a1a2e]"
               >
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 text-2xl">
-                  {user.avatar}
+                  {user.avatar || "👤"}
                 </span>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-white">{user.name}</h3>
                   <p className="text-sm text-indigo-300">{user.taste_summary}</p>
                   <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
                     <span>{user.total_ratings} ratings</span>
-                    <span>avg {user.avg_rating.toFixed(1)}★</span>
+                    {user.avg_rating > 0 && <span>avg {user.avg_rating.toFixed(1)}★</span>}
                   </div>
                 </div>
                 <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-gray-600 transition-colors group-hover:text-indigo-400" />

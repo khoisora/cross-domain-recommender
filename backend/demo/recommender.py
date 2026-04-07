@@ -134,36 +134,52 @@ class HybridRecommender:
                 "items": enriched,
             })
 
-        # ── Row 4: SBERT — "Similar in Theme" ──
-        # Uses content embeddings — also refreshes fast (mean of item vectors)
-        if cd_user_idx is not None:
-            recent_liked = [(s.cd_item_to_idx.get(r["item_id"]), r["rating"])
-                           for r in s.get_user_rated_items(user_ext_id)
-                           if r["rating"] >= 4.0 and r["item_id"] in s.cd_item_to_idx]
-            if recent_liked:
-                profile = np.zeros(s.content_emb.shape[1], dtype=np.float64)
-                n = 0
-                for idx, rating in recent_liked:
-                    if idx is not None and idx < s.content_emb.shape[0]:
-                        profile += s.content_emb[idx] * (rating / 5.0)
-                        n += 1
-                if n > 0:
-                    profile /= n
-                    norm_p = np.linalg.norm(profile)
-                    if norm_p > 0:
-                        profile /= norm_p
-                    scores = s.content_emb @ profile.astype(np.float32)
-                    # Zero out non-game items
-                    non_game = set(range(len(scores))) - s.cd_game_indices
-                    scores[list(non_game)] = -1e9
-                    norm = _normalise(scores)
-                    items = _top_k_excluding(norm, rated_cd, k_per_row + 10)
-                    enriched = self._enrich_cd(items, all_seen_ext, k_per_row,
-                                               "Content similarity to your rated items (SBERT)")
+        # ── Row 4: SBERT Games — "Games Similar in Theme" ──
+        recent_liked = [(s.cd_item_to_idx.get(r["item_id"]), r["rating"])
+                       for r in s.get_user_rated_items(user_ext_id)
+                       if r["rating"] >= 4.0 and r["item_id"] in s.cd_item_to_idx]
+        if recent_liked:
+            profile = np.zeros(s.content_emb.shape[1], dtype=np.float64)
+            n = 0
+            for idx, rating in recent_liked:
+                if idx is not None and idx < s.content_emb.shape[0]:
+                    profile += s.content_emb[idx] * (rating / 5.0)
+                    n += 1
+            if n > 0:
+                profile /= n
+                norm_p = np.linalg.norm(profile)
+                if norm_p > 0:
+                    profile /= norm_p
+                scores = s.content_emb @ profile.astype(np.float32)
+
+                # Games row
+                game_scores = scores.copy()
+                non_game = np.array(sorted(set(range(len(scores))) - s.cd_game_indices))
+                if len(non_game) > 0:
+                    game_scores[non_game] = -1e9
+                norm_g = _normalise(game_scores)
+                items = _top_k_excluding(norm_g, rated_cd, k_per_row + 10)
+                enriched = self._enrich_cd(items, all_seen_ext, k_per_row,
+                                           "Content similarity to your rated items (SBERT)")
+                rows.append({
+                    "key": "sbert_games",
+                    "title": "Games Similar in Theme",
+                    "subtitle": "Semantic text similarity — discovers niche games matching your taste",
+                    "items": enriched,
+                })
+
+                # Movies row (SBERT works in shared text space — movies too!)
+                movie_scores = scores.copy()
+                movie_scores[list(s.cd_game_indices)] = -1e9
+                norm_m = _normalise(movie_scores)
+                items = _top_k_excluding(norm_m, rated_cd, k_per_row + 10)
+                enriched = self._enrich_cd(items, all_seen_ext, k_per_row,
+                                           "Movies with similar themes to your favorites (SBERT)")
+                if enriched:
                     rows.append({
-                        "key": "sbert",
-                        "title": "Similar in Theme",
-                        "subtitle": "Semantic text similarity — great for discovering niche games",
+                        "key": "sbert_movies",
+                        "title": "Movies You Might Enjoy",
+                        "subtitle": "Content-based movie recommendations from your combined taste profile",
                         "items": enriched,
                     })
 
@@ -200,16 +216,19 @@ class HybridRecommender:
         return self._enrich(items, seen, k, reason, self.store.cd_items_by_idx)
 
     def _enrich(self, items: list[tuple[int, float]], seen: set[str],
-                k: int, reason: str, items_by_idx: dict) -> list[dict]:
+                k: int, reason: str, items_by_idx: dict,
+                domain_filter: str | None = None) -> list[dict]:
         enriched = []
         for idx, score in items:
             meta = items_by_idx.get(idx, {})
             ext_id = meta.get("external_id", "")
             if ext_id in seen:
                 continue
+            if domain_filter and meta.get("domain") != domain_filter:
+                continue
             seen.add(ext_id)
             enriched.append({
-                "idx": idx,
+                "idx": meta.get("idx", idx),
                 "external_id": ext_id,
                 "title": meta.get("title", "Unknown"),
                 "domain": meta.get("domain", ""),

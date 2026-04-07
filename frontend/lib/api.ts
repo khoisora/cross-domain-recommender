@@ -68,12 +68,8 @@ export async function searchItems(query: string, limit: number = 20, userId?: nu
   return fetchJSON<SearchResponse>(`${API_BASE}/api/items/search?${params}`);
 }
 
-export async function getItem(itemIdx: number): Promise<ItemDetail> {
-  return fetchJSON<ItemDetail>(`${API_BASE}/api/items/${itemIdx}`);
-}
-
-export async function getSimilarItems(itemIdx: number, limit: number = 10): Promise<SimilarResponse> {
-  return fetchJSON<SimilarResponse>(`${API_BASE}/api/items/${itemIdx}/similar?limit=${limit}`);
+export async function getItem(externalId: string): Promise<ItemDetail> {
+  return fetchJSON<ItemDetail>(`${API_BASE}/api/items/${externalId}`);
 }
 
 // ── Ratings ─────────────────────────────────────────────────────────────

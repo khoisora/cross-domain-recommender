@@ -14,7 +14,7 @@ export default function ItemDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const itemIdx = Number(params.id);
+  const itemId = String(params.id); // external_id (e.g. ASIN)
   const userId = Number(searchParams.get("user")) || 0;
 
   const [item, setItem] = useState<ItemDetail | null>(null);
@@ -39,39 +39,30 @@ export default function ItemDetailPage() {
   };
 
   useEffect(() => {
-    if (!itemIdx) return;
+    if (!itemId) return;
     setLoading(true);
     setSbertSimilar([]);
     setCrossDomainSimilar([]);
-    Promise.all([
-      getItem(itemIdx).catch(() => null),
-      getItemGraph(itemIdx, userId || undefined).catch(() => null),
-      getItemExplanation(itemIdx, userId || undefined).catch(() => null),
-    ]).then(([it, gr, ex]) => {
+    getItem(itemId).then((it) => {
       setItem(it);
-      setGraph(gr);
-      setExplanation(ex);
-      // Restore user's existing rating from graph data (rated node matching this item)
-      if (gr) {
-        const centerNode = gr.nodes.find((n) => n.id === itemIdx);
-        if (centerNode?.user_rating) setUserRating(centerNode.user_rating);
+      // SBERT similar items are included in the item detail response
+      if (it?.similar_items) {
+        setSbertSimilar(it.similar_items.map((s: any) => ({
+          idx: 0, external_id: s.external_id, title: s.title,
+          domain: s.domain, image_url: s.image_url || "",
+          avg_rating: s.avg_rating, rating_count: 0,
+          score: s.similarity, reason: `${(s.similarity * 100).toFixed(0)}% similar (SBERT)`,
+          description: "", genres: "", tags: "", year: "",
+        })));
       }
-    }).finally(() => setLoading(false));
-
-    // Fetch SBERT similar items independently (non-blocking)
-    getSimilarItems(itemIdx, 10)
-      .then((res) => {
-        setSbertSimilar(res.items);
-        setCrossDomainSimilar(res.cross_domain_items ?? []);
-      })
-      .catch(() => {});
-  }, [itemIdx, userId]);
+    }).catch(() => null).finally(() => setLoading(false));
+  }, [itemId, userId]);
 
   const handleRate = async (rating: number) => {
     if (!userId) return;
     setUserRating(rating);
     try {
-      const res = await submitRating({ user_id: userId, item_idx: itemIdx, rating });
+      const res = await submitRating({ user_id: userId, external_id: itemId, rating });
       setRatingMsg(res.message);
       setTimeout(() => setRatingMsg(""), 3000);
       try {
