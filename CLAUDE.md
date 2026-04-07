@@ -100,6 +100,7 @@ All models inherit from `BaseRecommender` (or `BasePyTorchRecommender`/`BaseLibr
 
 ## Implementation rules
 
+- **Parallelism**: When running multiple commands or tasks that are independent of each other, always run them in parallel — multiple Bash tool calls in a single message, or use `run_parallel_benchmarks.py` / `run_parallel_transfer_benchmarks.py` for bench scripts. Never run independent tasks sequentially when they can be parallelized.
 - **Lesson order**: implement and verify each lesson end-to-end before starting the next.
 - **One file per model, one file per bench script**: `ml/models/<model>.py`, `ml/scripts/benchmarks/bench_<model>.py`.
 - **All metrics are @10 only** — no @5, @20, @50 in any output.

@@ -20,12 +20,14 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 import numpy as np
+import pandas as pd
 
 from ml.scripts.benchmarks.benchmark_common import (
     add_common_args, evaluate_cross_domain,
     load_user_split_cold_start_split, save_result, setup_logging,
-    POSITIVE_THRESHOLD,
+    POSITIVE_THRESHOLD, _DOMAIN_PAIR_PATHS,
 )
+from ml.scripts.benchmarks.cooc_rerank import build_movie_game_cooc, wrap_predict_with_cooc
 from ml.models.matrix_factorization_bpr import MatrixFactorizationBPR
 from ml.models.ncf import NCF
 from ml.models.lightgcn import LightGCN
@@ -33,6 +35,7 @@ from ml.models.cmf import CMF
 from ml.models.emcdr import EMCDRWrapper
 from ml.models.ptupcdr import PTUPCDRWrapper
 from ml.models.bitgcf import BiTGCFWrapper
+from ml.models.sbert_model import SBERTModel
 
 logger = logging.getLogger(__name__)
 
@@ -107,14 +110,15 @@ def main() -> None:
 
     # --- LightGCN ---
     t0 = time.time()
-    model = LightGCN(data.num_users, data.num_items, embedding_dim=64, device=data.device)
-    model.fit(data.game_train, data.user_to_idx, data.item_to_idx,
-              epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
-              positive_threshold=POSITIVE_THRESHOLD)
-    metrics = evaluate_cross_domain("LightGCN", lambda uid: model.predict(uid), data)
+    lgcn_model = LightGCN(data.num_users, data.num_items, embedding_dim=64, device=data.device)
+    lgcn_model.fit(data.game_train, data.user_to_idx, data.item_to_idx,
+                   epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
+                   positive_threshold=POSITIVE_THRESHOLD)
+    lgcn_train_time = time.time() - t0
+    metrics = evaluate_cross_domain("LightGCN", lambda uid: lgcn_model.predict(uid), data)
     save_result(
         algo="LightGCN", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
+        lesson=args.lesson, train_time=lgcn_train_time,
         description="LightGCN cold-start (game-only, warm users only)",
     )
 
@@ -181,6 +185,58 @@ def main() -> None:
         algo="BiTGCF", metrics=metrics, dataset_info=data.dataset_info,
         lesson=args.lesson, train_time=time.time() - t0,
         description="BiTGCF cold-start (GCN + bidirectional transfer, emb=96, layers=3, epochs=150)",
+    )
+
+    # --- LightGCN + co-occurrence rerank (cold users only) ---
+    # Cooc adds movie→game behavioral signal for cold users (max_target_train=0 gates warm users out)
+    cooc = build_movie_game_cooc(data.movie_train, data.game_train,
+                                  rating_threshold=POSITIVE_THRESHOLD)
+    lgcn_cooc_fn = wrap_predict_with_cooc(
+        lgcn_model.predict, data, cooc, lam=0.05, max_target_train=0,
+    )
+    metrics = evaluate_cross_domain("LightGCN_cooc", lgcn_cooc_fn, data)
+    results["LightGCN_cooc"] = metrics
+    save_result(
+        algo="LightGCN_cooc", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=lgcn_train_time,
+        description="LightGCN+cooc cold-start (cooc bonus gated to cold users, max_target_train=0)",
+    )
+
+    # --- SBERT-CDR on cold-start split ---
+    # Cold users have no game history → get source-only (movie) SBERT profile = pure CDR transfer
+    data_dir = _DOMAIN_PAIR_PATHS[args.domain_pair][0]
+    movies_df = pd.read_parquet(data_dir / "movies.parquet")
+    games_df = pd.read_parquet(data_dir / "games.parquet")
+    items_df = pd.concat([movies_df, games_df], ignore_index=True)
+
+    t0 = time.time()
+    sbert = SBERTModel()
+    sbert.encode_items(items_df, data.item_to_idx)
+    sbert.compute_cross_domain_user_embeddings(
+        data.cross_train, data.user_to_idx, data.item_to_idx,
+        source_domain="movie", target_domain="game",
+        positive_threshold=POSITIVE_THRESHOLD,
+        source_weight=0.5,
+    )
+    sbert_train_time = time.time() - t0
+    metrics = evaluate_cross_domain("SBERT_CDR", lambda uid: sbert.predict(uid), data)
+    results["SBERT_CDR"] = metrics
+    save_result(
+        algo="SBERT_CDR", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=sbert_train_time,
+        description="SBERT-CDR cold-start: cold users get movie-only SBERT profile (source-only CDR)",
+    )
+
+    # --- SBERT-CDR + co-occurrence rerank (cold users only) ---
+    sbert_cooc_fn = wrap_predict_with_cooc(
+        sbert.predict, data, cooc, lam=0.05, max_target_train=0,
+    )
+    metrics = evaluate_cross_domain("SBERT_CDR_cooc", sbert_cooc_fn, data)
+    results["SBERT_CDR_cooc"] = metrics
+    save_result(
+        algo="SBERT_CDR_cooc", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=sbert_train_time,
+        description="SBERT-CDR+cooc cold-start: semantic profile + behavioral co-occurrence bonus",
     )
 
     # Print summary
