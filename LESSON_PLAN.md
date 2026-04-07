@@ -561,6 +561,8 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 
 ## Summary: the decision rule all lessons justify
 
+> **Cooc as universal post-processing**: movie→game co-occurrence reranking (`cooc_rerank.py`) improves every model in every regime (L3 LLO: +9% to +2850%; L6 cold-start: +2% to +45×). Apply it to all paths below. The only exception is Popularity, where cooc adds noise (+1.6%). Gate with `max_target_train=0` for cold-start paths so warm users are unaffected.
+
 User state
 
 Recommended model
@@ -569,33 +571,33 @@ Justified by
 
 0 games, rich movies
 
-EMCDR or PTUPCDR + popularity blend
+**EMCDR + cooc** (popularity blend as floor)
 
-Lesson 6
+L6 cooc: EMCDR most robust at true cold-start (global MLP mapping works without game edges); PTUPCDR needs game history to activate few-shot blend
 
 1–2 games, rich movies
 
-PTUPCDR (few-shot blend)
+**PTUPCDR + cooc**
 
-Lessons 4, 6
+L4, L6, L3 cooc: few-shot blend activates once game edges exist; cooc adds +29% on LLO
 
 3–9 games
 
-LightGCN (game-only)
+**LightGCN + cooc**
 
-Lessons 2, 4
+L2, L4, L3 cooc: best LLO base (+9% from cooc); movie transfer via cooc fills gap game graph alone misses
 
 10+ games
 
-LightGCN
+**LightGCN + cooc**
 
-Lesson 2
+L2, L3 cooc: cooc consistently helps even with rich game history
 
 Niche / unpopular games
 
-SBERT-CDR as fallback
+**SBERT-CDR + cooc**
 
-Lesson 7
+L7, L6 cooc: SBERT-CDR alone weak (Recall=0.002); cooc provides behavioral anchor that rescues it (→0.024); semantic + co-occurrence signals are complementary for niche items
 
 ---
 
