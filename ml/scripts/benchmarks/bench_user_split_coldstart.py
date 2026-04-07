@@ -84,6 +84,10 @@ def main() -> None:
 
     results = {}
 
+    # Build cooc early — cheap, no training needed; used later to wrap CDR predict fns
+    cooc = build_movie_game_cooc(data.movie_train, data.game_train,
+                                  rating_threshold=POSITIVE_THRESHOLD)
+
     # --- Popularity baseline ---
     t0 = time.time()
     pop_fn = run_popularity(data)
@@ -137,60 +141,93 @@ def main() -> None:
 
     # --- CMF ---
     t0 = time.time()
-    model = CMF(data.num_users, data.num_items, embedding_dim=64, device=data.device)
-    model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
-              epochs=50, lr=0.001, reg_lambda=0.01, batch_size=4096,
-              positive_threshold=POSITIVE_THRESHOLD)
-    metrics = evaluate_cross_domain("CMF", lambda uid: model.predict(uid), data)
+    cmf_model = CMF(data.num_users, data.num_items, embedding_dim=64, device=data.device)
+    cmf_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
+                  epochs=50, lr=0.001, reg_lambda=0.01, batch_size=4096,
+                  positive_threshold=POSITIVE_THRESHOLD)
+    cmf_train_time = time.time() - t0
+    metrics = evaluate_cross_domain("CMF", lambda uid: cmf_model.predict(uid), data)
     save_result(
         algo="CMF", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
+        lesson=args.lesson, train_time=cmf_train_time,
         description="CMF cold-start (joint MF on movies+games)",
+    )
+    metrics = evaluate_cross_domain("CMF_cooc", wrap_predict_with_cooc(
+        cmf_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
+    results["CMF_cooc"] = metrics
+    save_result(
+        algo="CMF_cooc", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=cmf_train_time,
+        description="CMF+cooc cold-start (joint MF + movie→game co-occurrence bonus)",
     )
 
     # --- EMCDR ---
     t0 = time.time()
-    model = EMCDRWrapper(data.num_users, data.num_items, embedding_dim=64, device=data.device)
-    model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
-              epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
-              positive_threshold=POSITIVE_THRESHOLD)
-    metrics = evaluate_cross_domain("EMCDR", lambda uid: model.predict(uid), data)
+    emcdr_model = EMCDRWrapper(data.num_users, data.num_items, embedding_dim=64, device=data.device)
+    emcdr_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
+                    epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
+                    positive_threshold=POSITIVE_THRESHOLD)
+    emcdr_train_time = time.time() - t0
+    metrics = evaluate_cross_domain("EMCDR", lambda uid: emcdr_model.predict(uid), data)
     save_result(
         algo="EMCDR", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
+        lesson=args.lesson, train_time=emcdr_train_time,
         description="EMCDR cold-start (global mapping from movie → game space)",
+    )
+    metrics = evaluate_cross_domain("EMCDR_cooc", wrap_predict_with_cooc(
+        emcdr_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
+    results["EMCDR_cooc"] = metrics
+    save_result(
+        algo="EMCDR_cooc", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=emcdr_train_time,
+        description="EMCDR+cooc cold-start (global MLP mapping + co-occurrence bonus)",
     )
 
     # --- PTUPCDR ---
     t0 = time.time()
-    model = PTUPCDRWrapper(data.num_users, data.num_items, embedding_dim=64, device=data.device)
-    model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
-              epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
-              positive_threshold=POSITIVE_THRESHOLD)
-    metrics = evaluate_cross_domain("PTUPCDR", lambda uid: model.predict(uid), data)
+    ptupcdr_model = PTUPCDRWrapper(data.num_users, data.num_items, embedding_dim=64, device=data.device)
+    ptupcdr_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
+                      epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
+                      positive_threshold=POSITIVE_THRESHOLD)
+    ptupcdr_train_time = time.time() - t0
+    metrics = evaluate_cross_domain("PTUPCDR", lambda uid: ptupcdr_model.predict(uid), data)
     save_result(
         algo="PTUPCDR", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
+        lesson=args.lesson, train_time=ptupcdr_train_time,
         description="PTUPCDR cold-start (per-user hypernetwork mapping)",
+    )
+    metrics = evaluate_cross_domain("PTUPCDR_cooc", wrap_predict_with_cooc(
+        ptupcdr_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
+    results["PTUPCDR_cooc"] = metrics
+    save_result(
+        algo="PTUPCDR_cooc", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=ptupcdr_train_time,
+        description="PTUPCDR+cooc cold-start (personalized MoE mapping + co-occurrence bonus)",
     )
 
     # --- BiTGCF ---
     t0 = time.time()
-    model = BiTGCFWrapper(data.num_users, data.num_items, embedding_dim=96, device=data.device)
-    model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
-              epochs=150, lr=0.001, reg_lambda=1e-4, batch_size=4096,
-              positive_threshold=POSITIVE_THRESHOLD)
-    metrics = evaluate_cross_domain("BiTGCF", lambda uid: model.predict(uid), data)
+    bitgcf_model = BiTGCFWrapper(data.num_users, data.num_items, embedding_dim=96, device=data.device)
+    bitgcf_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
+                     epochs=150, lr=0.001, reg_lambda=1e-4, batch_size=4096,
+                     positive_threshold=POSITIVE_THRESHOLD)
+    bitgcf_train_time = time.time() - t0
+    metrics = evaluate_cross_domain("BiTGCF", lambda uid: bitgcf_model.predict(uid), data)
     save_result(
         algo="BiTGCF", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
+        lesson=args.lesson, train_time=bitgcf_train_time,
         description="BiTGCF cold-start (GCN + bidirectional transfer, emb=96, layers=3, epochs=150)",
+    )
+    metrics = evaluate_cross_domain("BiTGCF_cooc", wrap_predict_with_cooc(
+        bitgcf_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
+    results["BiTGCF_cooc"] = metrics
+    save_result(
+        algo="BiTGCF_cooc", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=bitgcf_train_time,
+        description="BiTGCF+cooc cold-start (bidirectional GCN + co-occurrence bonus)",
     )
 
     # --- LightGCN + co-occurrence rerank (cold users only) ---
-    # Cooc adds movie→game behavioral signal for cold users (max_target_train=0 gates warm users out)
-    cooc = build_movie_game_cooc(data.movie_train, data.game_train,
-                                  rating_threshold=POSITIVE_THRESHOLD)
     lgcn_cooc_fn = wrap_predict_with_cooc(
         lgcn_model.predict, data, cooc, lam=0.05, max_target_train=0,
     )
