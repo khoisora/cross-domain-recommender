@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getRecommendations, searchItems, getUser, retrainModels } from "@/lib/api";
 import type { SampleUser, UserProfile, RecommendationRow, RecommendationResponse, ItemOut, SearchResponse } from "@/types";
-import { RefreshCw, Search, Star, ChevronLeft, ChevronRight, ChevronDown, X, LogOut } from "lucide-react";
+import { RefreshCw, Search, Star, ChevronLeft, ChevronRight, ChevronDown, X, LogOut, Film, Gamepad2 } from "lucide-react";
 
 export default function RecommendationsPage() {
   const router = useRouter();
@@ -320,40 +320,53 @@ function DomainLane({ items, userId, label, emoji, domain }: {
 
   if (items.length === 0) return null;
 
-  const bg = domain === "movie"
+  const isMovie = domain === "movie";
+  const bg = isMovie
     ? "bg-gradient-to-r from-blue-950/30 via-blue-950/10 to-transparent border-l-2 border-blue-500/40"
     : "bg-gradient-to-r from-purple-950/30 via-purple-950/10 to-transparent border-l-2 border-purple-500/40";
+  const iconColor = isMovie ? "text-blue-500/[0.07]" : "text-purple-500/[0.07]";
+  const LaneIcon = isMovie ? Film : Gamepad2;
 
   return (
-    <div className={`rounded-lg px-3 py-3 ${bg}`}>
-      <p className={`mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${
-        domain === "movie" ? "text-blue-400" : "text-purple-400"
-      }`}>
-        <span>{emoji}</span> {label}
-        <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-normal ${
-          domain === "movie" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"
+    <div className={`relative rounded-lg px-3 py-3 overflow-hidden ${bg}`}>
+      {/* Large watermark icon behind the lane */}
+      <LaneIcon className={`absolute -left-4 top-1/2 -translate-y-1/2 h-32 w-32 ${iconColor} pointer-events-none select-none`} strokeWidth={1.2} />
+
+      <div className="relative z-10">
+        <p className={`mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${
+          isMovie ? "text-blue-400" : "text-purple-400"
         }`}>
-          {items.length}
-        </span>
-      </p>
-      <div className="group relative">
-        <button
-          onClick={() => scroll("left")}
-          className="absolute -left-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <div ref={scrollRef} className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
-          {items.map((item) => (
-            <ItemCard key={`${item.external_id}-${item.idx}`} item={item} userId={userId} />
-          ))}
+          {isMovie ? (
+            <Film className={`h-4 w-4 ${isMovie ? "text-blue-400" : "text-purple-400"}`} />
+          ) : (
+            <Gamepad2 className={`h-4 w-4 ${isMovie ? "text-blue-400" : "text-purple-400"}`} />
+          )}
+          {label}
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-normal ${
+            isMovie ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"
+          }`}>
+            {items.length}
+          </span>
+        </p>
+        <div className="group relative">
+          <button
+            onClick={() => scroll("left")}
+            className="absolute -left-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div ref={scrollRef} className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+            {items.map((item) => (
+              <ItemCard key={`${item.external_id}-${item.idx}`} item={item} userId={userId} />
+            ))}
+          </div>
+          <button
+            onClick={() => scroll("right")}
+            className="absolute -right-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
         </div>
-        <button
-          onClick={() => scroll("right")}
-          className="absolute -right-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
       </div>
     </div>
   );
@@ -422,13 +435,18 @@ function ItemCard({ item, userId }: { item: ItemOut; userId: number }) {
           {item.image_url ? (
             <img src={item.image_url} alt={item.title} className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full items-center justify-center text-4xl text-gray-700">
-              {item.domain === "movie" ? "🎬" : "🎮"}
+            <div className="flex h-full items-center justify-center text-gray-700">
+              {item.domain === "movie"
+                ? <Film className="h-12 w-12" strokeWidth={1} />
+                : <Gamepad2 className="h-12 w-12" strokeWidth={1} />}
             </div>
           )}
-          <span className={`absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+          <span className={`absolute left-1.5 top-1.5 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
             item.domain === "movie" ? "bg-blue-600/90 text-blue-100" : "bg-purple-600/90 text-purple-100"
           }`}>
+            {item.domain === "movie"
+              ? <Film className="h-2.5 w-2.5" />
+              : <Gamepad2 className="h-2.5 w-2.5" />}
             {item.domain}
           </span>
         </div>
