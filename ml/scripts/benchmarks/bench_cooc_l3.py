@@ -36,8 +36,6 @@ from ml.models.ncf import NCF
 from ml.models.cmf import CMF
 from ml.models.emcdr import EMCDRWrapper
 from ml.models.ptupcdr import PTUPCDRWrapper
-from ml.models.bitgcf import BiTGCFWrapper
-
 logger = logging.getLogger(__name__)
 
 
@@ -175,18 +173,9 @@ def main() -> None:
     logger.info("PTUPCDR trained in %.1fs", time.time() - t0)
     run("PTUPCDR", m, data_cd, "PTUPCDR cross-domain LLO, L3 overlap dataset")
 
-    # --- BiTGCF (cross-domain) ---
-    t0 = time.time()
-    m = BiTGCFWrapper(data_cd.num_users, data_cd.num_items, embedding_dim=96, device=data_cd.device)
-    m.fit(data_cd.cross_train, data_cd.user_to_idx, data_cd.item_to_idx,
-          epochs=150, lr=0.001, reg_lambda=1e-4, batch_size=4096,
-          positive_threshold=POSITIVE_THRESHOLD)
-    logger.info("BiTGCF trained in %.1fs", time.time() - t0)
-    run("BiTGCF", m, data_cd, "BiTGCF cross-domain LLO, L3 overlap dataset, emb=96, epochs=150")
-
     # Summary
     logger.info("\n=== L3 Cooc Ablation (Recall@10) ===")
-    for name in ["MF_BPR", "NCF", "LightGCN", "CMF", "EMCDR", "PTUPCDR", "BiTGCF"]:
+    for name in ["MF_BPR", "NCF", "LightGCN", "CMF", "EMCDR", "PTUPCDR"]:
         base = results.get(name, {}).get("recall@10", 0)
         cooc = results.get(f"{name}_cooc", {}).get("recall@10", 0)
         delta_pct = 100 * (cooc - base) / base if base > 0 else float("inf")

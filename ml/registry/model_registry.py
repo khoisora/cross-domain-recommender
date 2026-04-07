@@ -39,7 +39,7 @@ class FileModelRegistry:
 
         Args:
             version: Version identifier string.
-            model_type: Model type (mf, ncf, lightgcn, cmf, bi_tgcf)
+            model_type: Model type (mf, ncf, lightgcn, cmf)
             artifact_path: Path to model artifacts.
             metrics: Evaluation metrics for this version.
             metadata: Additional metadata.

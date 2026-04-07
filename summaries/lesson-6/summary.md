@@ -38,7 +38,6 @@
 | **Popularity** | Baseline | **0.0365** | **0.0197** | 0.5265 | 0.2345 |
 | PTUPCDR | Personalized mapping (CDR) | 0.0305 | 0.0171 | 0.4970 | 0.2169 |
 | EMCDR | Mapping (CDR) | 0.0300 | 0.0174 | 0.4980 | 0.2198 |
-| BiTGCF | Graph (CDR) | 0.0095 | 0.0050 | 0.1770 | 0.0745 |
 | LightGCN | Graph (single-domain) | 0.0080 | 0.0029 | 0.1770 | 0.0743 |
 | NCF | Neural (single-domain) | 0.0020 | 0.0006 | — | — |
 | MF-BPR | MF (single-domain) | 0.0000 | 0.0000 | — | — |
@@ -52,7 +51,6 @@
 | Popularity | 0.0365 | 4.6× |
 | PTUPCDR | 0.0305 | 3.8× |
 | EMCDR | 0.0300 | 3.8× |
-| BiTGCF | 0.0095 | 1.2× |
 | LightGCN | 0.0080 | 1× (baseline) |
 | NCF | 0.0020 | 0.25× |
 | MF-BPR | 0.0000 | — |
@@ -63,9 +61,7 @@
 
 2. **Popularity is surprisingly competitive** (0.0365): First-game choice is often a well-known title (popular games = lower discovery risk). CDR mapping models (0.030) don't yet beat popularity — they provide complementary personalization signal from movie preferences.
 
-3. **BiTGCF underperforms on cold-start** (0.0095): GCN-based transfer propagates structural signals through the interaction graph, but cold users have no game edges to propagate through. Explicit mapping (EMCDR/PTUPCDR) handles zero-game users better by directly mapping movie embeddings to game space.
-
-4. **Single-domain models collapse completely**: MF-BPR=0.000, NCF≈0.002. With no game training data for cold users, these models can only output random or uniform scores. This proves the need for CDR in the cold-start regime.
+3. **Single-domain models collapse completely**: MF-BPR=0.000, NCF≈0.002. With no game training data for cold users, these models can only output random or uniform scores. This proves the need for CDR in the cold-start regime.
 
 5. **The routing rule is justified**: Users with ≥3 games → LightGCN (Lesson 2–4 evidence). Users with 0 games + rich movies → EMCDR/PTUPCDR or Popularity blend. This lesson demonstrates the cold-start half of the routing rule.
 

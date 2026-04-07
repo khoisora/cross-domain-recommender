@@ -42,7 +42,6 @@ MODELS = {
     "LightGCN": ("lightgcn_game_user.npy", "lightgcn_game_item.npy", "LightGCN_game"),
     "CMF": ("cmf_user.npy", "cmf_item.npy", "CMF"),
     "DeepAPF": ("deepapf_user.npy", "deepapf_item.npy", "DeepAPF"),
-    "Bi-TGCF": ("bi_tgcf_user.npy", "bi_tgcf_item.npy", "Bi-TGCF"),
 }
 
 

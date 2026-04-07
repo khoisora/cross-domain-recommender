@@ -35,7 +35,6 @@ if not VENV_PYTHON.exists():
 # Maps friendly name → (script, extra CLI args after --domain-pair)
 TRANSFER_BENCHMARK_MODELS: dict[str, tuple[str, list[str]]] = {
     "lightgcn": ("bench_lightgcn.py", []),
-    "bitgcf": ("bench_bi_tgcf.py", []),
     "ncf": ("bench_ncf.py", []),
     "mf_bpr": ("bench_mf_bpr.py", []),
     "mf_explicit": ("bench_mf_explicit.py", []),

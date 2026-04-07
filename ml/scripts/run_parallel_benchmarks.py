@@ -50,10 +50,6 @@ CROSS_DOMAIN_MODELS = {
         "script": "bench_deepapf.py",
         "type": "cross",
     },
-    "Bi-TGCF": {
-        "script": "bench_bi_tgcf.py",
-        "type": "cross",
-    },
 }
 
 
@@ -303,7 +299,7 @@ def main():
     """Main function."""
     print("🚀 Parallel Benchmark Runner")
     print("Single-Domain: MF Explicit, MF BPR, LightGCN, NCF, DeepFM")
-    print("Cross-Domain: CMF, DeepAPF, Bi-TGCF")
+    print("Cross-Domain: CMF, DeepAPF")
     print("="*60)
     
     # Run benchmarks

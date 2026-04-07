@@ -2,7 +2,7 @@
 
 **Claim**: Removing low-signal movie items (rated by very few overlap users) reduces embedding noise and improves CDR relative to single-domain.
 
-**Result**: Confirmed. Applying a movie popularity filter ≥10 (within the overlap-user subset) keeps 10,311 high-quality source items vs 39,534 noisy ones. CDR models recover toward L4 performance: CMF -3%, EMCDR -9%, PTUPCDR -12% vs L4. BiTGCF improves +18% over L4. The key insight: most movie items in L4 had median 4 ratings from overlap users — below the threshold for reliable source embeddings.
+**Result**: Confirmed. Applying a movie popularity filter ≥10 (within the overlap-user subset) keeps 10,311 high-quality source items vs 39,534 noisy ones. CDR models recover toward L4 performance: CMF -3%, EMCDR -9%, PTUPCDR -12% vs L4. The key insight: most movie items in L4 had median 4 ratings from overlap users — below the threshold for reliable source embeddings.
 
 ---
 
@@ -53,7 +53,6 @@
 | Model | Family | Recall@10 | NDCG@10 | Sampled HR@10 | Sampled NDCG@10 |
 |---|---|---|---|---|---|
 | **LightGCN** | Graph (single-domain) | **0.0315** | — | — | — |
-| BiTGCF | Graph (CDR) | 0.0265 | — | — | — |
 | PTUPCDR | Personalized mapping (CDR) | 0.0255 | — | — | — |
 | NCF | Neural (single-domain) | 0.0215 | — | — | — |
 | EMCDR | Mapping (CDR) | 0.0210 | — | — | — |
@@ -65,7 +64,6 @@
 | Model | L4 | L5 (pop≥10) | Change |
 |---|---|---|---|
 | LightGCN | 0.0350 | 0.0315 | -10% |
-| BiTGCF | 0.0225 | 0.0265 | **+18%** |
 | PTUPCDR | 0.0290 | 0.0255 | -12% |
 | NCF | 0.0140 | 0.0215 | **+54%** |
 | EMCDR | 0.0230 | 0.0210 | -9% |
@@ -76,7 +74,6 @@
 
 | Model | L4 gap | L5 gap | Trend |
 |---|---|---|---|
-| BiTGCF | -36% | -16% | CDR closing |
 | PTUPCDR | -17% | -19% | Slight widening |
 | NCF | -60% | -32% | Improvement |
 | EMCDR | -34% | -33% | Flat |
@@ -87,9 +84,7 @@
 
 1. **Pop≥10 filter recovers CDR**: CMF recovers to -3% vs L4 (was -28%), EMCDR to -9% (was -20%). The richer source embeddings from 10K quality items outperform 39K noisy items.
 
-2. **BiTGCF gains +18%**: Graph-based CDR benefits most from denser source graphs — 10K quality items with ≥10 ratings each gives BiTGCF tighter message-passing neighborhoods.
-
-3. **LightGCN drops -10%**: Fewer movie items means fewer items in the bipartite graph, reducing neighborhood diversity for the movie-side GCN. Single-domain game metrics are unaffected since game catalog is unchanged.
+2. **LightGCN drops -10%**: Fewer movie items means fewer items in the bipartite graph, reducing neighborhood diversity for the movie-side GCN. Single-domain game metrics are unaffected since game catalog is unchanged.
 
 4. **NCF improves +54%**: The cleaner item space (fewer noise items) helps NCF's neural interaction learning, even though NCF only uses game data for recommendations.
 

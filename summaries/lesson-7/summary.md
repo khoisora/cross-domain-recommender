@@ -79,7 +79,7 @@ SBERT (0.0310) reaches **92% of LightGCN** with zero training. SBERT-CDR (0.0330
 | **L2** | Mixed population baseline | LightGCN leads; CDR underperforms on non-overlap users — wrong population for CDR |
 | **L3** | Overlap users only | Restricting to 100% overlap: PTUPCDR +276%, EMCDR +53% — CDR needs overlap |
 | **L4** | Source-rich (movies≥10) | PTUPCDR closes to within 17% of LightGCN — richer movie history = better transfer |
-| **L5** | Catalog sharpening | BiTGCF +18%, PTUPCDR/EMCDR drop — dense catalog helps graph CDR, hurts mapping CDR |
+| **L5** | Catalog sharpening | PTUPCDR/EMCDR drop — dense catalog hurts mapping CDR on this dataset |
 | **L6** | Cold-start (0 game history) | PTUPCDR 4× over LightGCN on zero-game users — CDR essential for cold-start |
 | **L7** | SBERT content CDR | SBERT wins 11× on niche subgroup; SBERT-CDR matches LightGCN overall |
 

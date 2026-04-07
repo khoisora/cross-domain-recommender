@@ -34,7 +34,6 @@ from ml.models.lightgcn import LightGCN
 from ml.models.cmf import CMF
 from ml.models.emcdr import EMCDRWrapper
 from ml.models.ptupcdr import PTUPCDRWrapper
-from ml.models.bitgcf import BiTGCFWrapper
 from ml.models.sbert_model import SBERTModel
 
 logger = logging.getLogger(__name__)
@@ -213,28 +212,6 @@ def main() -> None:
         algo="PTUPCDR_cooc", metrics=metrics, dataset_info=data.dataset_info,
         lesson=args.lesson, train_time=ptupcdr_train_time,
         description="PTUPCDR+cooc cold-start (personalized MoE mapping + co-occurrence bonus)",
-    )
-
-    # --- BiTGCF ---
-    t0 = time.time()
-    bitgcf_model = BiTGCFWrapper(data.num_users, data.num_items, embedding_dim=96, device=data.device)
-    bitgcf_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
-                     epochs=150, lr=0.001, reg_lambda=1e-4, batch_size=4096,
-                     positive_threshold=POSITIVE_THRESHOLD)
-    bitgcf_train_time = time.time() - t0
-    metrics = evaluate_cross_domain("BiTGCF", lambda uid: bitgcf_model.predict(uid), data)
-    save_result(
-        algo="BiTGCF", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=bitgcf_train_time,
-        description="BiTGCF cold-start (GCN + bidirectional transfer, emb=96, layers=3, epochs=150)",
-    )
-    metrics = evaluate_cross_domain("BiTGCF_cooc", wrap_predict_with_cooc(
-        bitgcf_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
-    results["BiTGCF_cooc"] = metrics
-    save_result(
-        algo="BiTGCF_cooc", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=bitgcf_train_time,
-        description="BiTGCF+cooc cold-start (bidirectional GCN + co-occurrence bonus)",
     )
 
     # --- LightGCN + co-occurrence rerank (cold users only) ---

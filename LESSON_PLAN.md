@@ -590,7 +590,6 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 | LLO | LightGCN | 0.0595 | 0.0625 | +5% |
 | LLO | CMF (fixed) | 0.0395 | 0.0380 | -4% (cooc hurts — CDR already captures signal) |
 | LLO | PTUPCDR | 0.0315 | 0.0355 | +13% |
-| LLO | BiTGCF | 0.0425 | 0.0530 | +25% |
 | LLO | EMCDR | 0.0225 | 0.0335 | +49% |
 | Cold | LightGCN | 0.0067 | 0.0261 | +289% |
 | Cold | EMCDR | 0.0334 | 0.0341 | +2% |
@@ -602,7 +601,6 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 - **Joint factorization (properly tuned CMF)**: once fixed (alpha=0.05, lr=0.0005), CMF already captures cross-domain signal well — cooc slightly hurts (-4%) by adding redundant/conflicting signal. Broken CMF (alpha=0.3, lr=0.01) gained +70% from cooc, which was masking the misconfiguration.
 - **Global mapping CDR** (EMCDR): MLP learns population-average movie→game transfer; cooc is personalized per user/item pair — complementary granularity.
 - **Personalized mapping CDR** (PTUPCDR): MoE captures user clusters, not item-level co-occurrence; cooc fills that gap.
-- **Graph CDR** (BiTGCF): structural neighborhood signal + behavioral co-count = complementary.
 - **Popularity**: already a strong cold-start prior; popular games dominate co-occurrence counts, so the two signals are highly correlated — no new information.
 
 **Updated routing rule**: Cooc is added as universal post-processing to all routing paths. Cold-start preference updated: EMCDR+cooc preferred over PTUPCDR+cooc (EMCDR's global MLP works without game edges; PTUPCDR's few-shot blend requires game history to activate). Niche path updated: SBERT-CDR+cooc replaces SBERT-CDR alone.
