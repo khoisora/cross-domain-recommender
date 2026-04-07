@@ -124,6 +124,11 @@
     .similar-section p { font-size: 12px; color: #6b7280; margin-bottom: 12px; }
     .similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 
+    /* Drag-to-scroll */
+    .card-scroll { cursor: grab; user-select: none; }
+    .card-scroll.dragging { cursor: grabbing; scroll-behavior: auto; }
+    .card-scroll.dragging .item-card { pointer-events: none; }
+
     /* Loading */
     .spinner { width: 32px; height: 32px; border: 3px solid #1e1e2e; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.6s linear infinite; margin: 40px auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -520,6 +525,30 @@
       if (!$(e.target).closest('.search-bar').length) {
         $('.search-results').addClass('hidden');
       }
+    });
+
+    // ── DRAG-TO-SCROLL ────────────────────────────────────
+    $(document).on('mousedown', '.card-scroll', function(e) {
+      const el = this;
+      el.classList.add('dragging');
+      const startX = e.pageX;
+      const scrollLeft = el.scrollLeft;
+      let moved = false;
+
+      function onMove(e2) {
+        const dx = e2.pageX - startX;
+        if (Math.abs(dx) > 3) moved = true;
+        el.scrollLeft = scrollLeft - dx;
+      }
+      function onUp() {
+        el.classList.remove('dragging');
+        $(document).off('mousemove', onMove).off('mouseup', onUp);
+        // If user dragged, suppress the click on cards
+        if (moved) {
+          $(el).one('click', '.item-card', function(e3) { e3.stopPropagation(); });
+        }
+      }
+      $(document).on('mousemove', onMove).on('mouseup', onUp);
     });
 
     // ── INIT ────────────────────────────────────────────────
