@@ -39,13 +39,14 @@ class CMF:
         self.item_embeddings: Optional[np.ndarray] = None
 
     def fit(self, ratings, user_to_idx, item_to_idx,
-            epochs: int = 40, lr: float = 0.01, reg_lambda: float = 0.0,
+            epochs: int = 100, lr: float = 0.0005, reg_lambda: float = 0.0,
             batch_size: int = 8192, positive_threshold: float = 4.0,
+            alpha: float = 0.05,
             source_domain: str = "movie", target_domain: str = "game") -> dict[str, float]:
         t0 = time.time()
         self._model, self._rb_users, self._rb_items = fit_cdr(
             "CMF",
-            {"embedding_size": self.embedding_dim, "alpha": 0.3, "lambda": 0.001, "gamma": 0.001},
+            {"embedding_size": self.embedding_dim, "alpha": alpha, "lambda": 0.001, "gamma": 0.001},
             ratings, user_to_idx, item_to_idx,
             epochs, lr, reg_lambda, batch_size, positive_threshold,
             source_domain=source_domain, target_domain=target_domain,

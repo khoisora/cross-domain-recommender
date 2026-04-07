@@ -45,9 +45,13 @@ def main() -> None:
     model = CMF(data.num_users, data.num_items,
                 embedding_dim=96, device=data.device)
     t0 = time.time()
+    # alpha=0.05: lower source weight avoids over-pushing user embeddings toward
+    # movie space; alpha=0.3 (original) degraded game ranking by 3×.
+    # lr=0.0005: RecBole uses Adam — lr=0.01 (original) is 20× too high and
+    # causes the joint loss to diverge.
     model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
-              epochs=40, lr=0.01, reg_lambda=0.0, batch_size=8192,
-              positive_threshold=POSITIVE_THRESHOLD)
+              epochs=100, lr=0.0005, reg_lambda=0.0, batch_size=8192,
+              alpha=0.05, positive_threshold=POSITIVE_THRESHOLD)
     train_time = time.time() - t0
 
     metrics = evaluate_cross_domain(ALGO, lambda uid: model.predict(uid), data)
@@ -55,7 +59,7 @@ def main() -> None:
     save_result(
         algo=ALGO, metrics=metrics, dataset_info=data.dataset_info,
         lesson=args.lesson, train_time=train_time,
-        description="RecBole-CDR CMF, emb=96, epochs=40, lr=0.01, alpha=0.3",
+        description="RecBole-CDR CMF, emb=96, epochs=100, lr=0.0005, alpha=0.05",
     )
 
 

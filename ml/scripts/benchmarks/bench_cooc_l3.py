@@ -109,7 +109,7 @@ def main() -> None:
     t0 = time.time()
     m = NCF(data_sd.num_users, data_sd.num_items, embedding_dim=64, device=data_sd.device)
     m.fit(data_sd.target_train, data_sd.user_to_idx, data_sd.item_to_idx,
-          epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
+          epochs=150, lr=0.001, reg_lambda=0.001, batch_size=4096,
           positive_threshold=POSITIVE_THRESHOLD)
     logger.info("NCF trained in %.1fs", time.time() - t0)
     run("NCF", m, data_sd, "NCF single-domain LLO, L3 overlap dataset")
@@ -151,8 +151,8 @@ def main() -> None:
     t0 = time.time()
     m = CMF(data_cd.num_users, data_cd.num_items, embedding_dim=96, device=data_cd.device)
     m.fit(data_cd.cross_train, data_cd.user_to_idx, data_cd.item_to_idx,
-          epochs=40, lr=0.01, reg_lambda=0.0, batch_size=8192,
-          positive_threshold=POSITIVE_THRESHOLD)
+          epochs=100, lr=0.0005, reg_lambda=0.0, batch_size=8192,
+          alpha=0.05, positive_threshold=POSITIVE_THRESHOLD)
     logger.info("CMF trained in %.1fs", time.time() - t0)
     run("CMF", m, data_cd, "CMF cross-domain LLO, L3 overlap dataset, emb=96")
 

@@ -588,10 +588,12 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 | Regime | Model | Base | +cooc | Δ |
 |---|---|---|---|---|
 | LLO | MF-BPR | 0.0445 | 0.0520 | +17% |
-| LLO | NCF | 0.0210 | 0.0330 | +57% |
-| LLO | LightGCN | 0.0475 | 0.0610 | +28% |
-| LLO | PTUPCDR | 0.0335 | 0.0340 | +1.5% |
-| LLO | BiTGCF | 0.0400 | 0.0420 | +5% |
+| LLO | NCF | 0.0255 | 0.0370 | +45% |
+| LLO | LightGCN | 0.0595 | 0.0625 | +5% |
+| LLO | CMF (fixed) | 0.0395 | 0.0380 | -4% (cooc hurts — CDR already captures signal) |
+| LLO | PTUPCDR | 0.0315 | 0.0355 | +13% |
+| LLO | BiTGCF | 0.0425 | 0.0530 | +25% |
+| LLO | EMCDR | 0.0225 | 0.0335 | +49% |
 | Cold | LightGCN | 0.0067 | 0.0261 | +289% |
 | Cold | EMCDR | 0.0334 | 0.0341 | +2% |
 | Cold | CMF | 0.0007 | 0.0321 | +45× |
@@ -599,7 +601,7 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 
 **Why cooc helps each model type**:
 - **Game-only models** (MF-BPR, NCF, LightGCN): cooc adds an entirely missing dimension — movie history is invisible to them; cooc injects it all at inference time.
-- **Joint factorization** (CMF): shared embedding bottleneck prevents domain-specific optimization; cooc bypasses it with direct item-level associations.
+- **Joint factorization (properly tuned CMF)**: once fixed (alpha=0.05, lr=0.0005), CMF already captures cross-domain signal well — cooc slightly hurts (-4%) by adding redundant/conflicting signal. Broken CMF (alpha=0.3, lr=0.01) gained +70% from cooc, which was masking the misconfiguration.
 - **Global mapping CDR** (EMCDR): MLP learns population-average movie→game transfer; cooc is personalized per user/item pair — complementary granularity.
 - **Personalized mapping CDR** (PTUPCDR): MoE captures user clusters, not item-level co-occurrence; cooc fills that gap.
 - **Graph CDR** (BiTGCF): structural neighborhood signal + behavioral co-count = complementary.
