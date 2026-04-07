@@ -98,6 +98,16 @@ def main() -> None:
         lesson=args.lesson, train_time=time.time() - t0,
         description="Global game popularity from warm-user interactions",
     )
+    # Popularity+cooc: personalize popularity with movie co-occurrence signal
+    # Tests whether behavioral co-occurrence alone (no trained model) can beat pure popularity
+    pop_cooc_fn = wrap_predict_with_cooc(pop_fn, data, cooc, lam=0.05, max_target_train=0)
+    metrics = evaluate_cross_domain("Popularity_cooc", pop_cooc_fn, data)
+    results["Popularity_cooc"] = metrics
+    save_result(
+        algo="Popularity_cooc", metrics=metrics, dataset_info=data.dataset_info,
+        lesson=args.lesson, train_time=time.time() - t0,
+        description="Popularity+cooc: global popularity personalized with movie→game co-occurrence",
+    )
 
     # --- MF-BPR ---
     t0 = time.time()
