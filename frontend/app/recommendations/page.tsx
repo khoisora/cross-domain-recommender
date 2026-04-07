@@ -303,11 +303,12 @@ export default function RecommendationsPage() {
 
 /* ── Recommendation Row ─────────────────────────────────────── */
 
-function DomainLane({ items, userId, label, emoji }: {
+function DomainLane({ items, userId, label, emoji, domain }: {
   items: ItemOut[];
   userId: number;
   label: string;
   emoji: string;
+  domain: "movie" | "game";
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -319,26 +320,37 @@ function DomainLane({ items, userId, label, emoji }: {
 
   if (items.length === 0) return null;
 
+  const bg = domain === "movie"
+    ? "bg-gradient-to-r from-blue-950/30 via-blue-950/10 to-transparent border-l-2 border-blue-500/40"
+    : "bg-gradient-to-r from-purple-950/30 via-purple-950/10 to-transparent border-l-2 border-purple-500/40";
+
   return (
-    <div>
-      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+    <div className={`rounded-lg px-3 py-3 ${bg}`}>
+      <p className={`mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${
+        domain === "movie" ? "text-blue-400" : "text-purple-400"
+      }`}>
         <span>{emoji}</span> {label}
+        <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-normal ${
+          domain === "movie" ? "bg-blue-500/20 text-blue-300" : "bg-purple-500/20 text-purple-300"
+        }`}>
+          {items.length}
+        </span>
       </p>
       <div className="group relative">
         <button
           onClick={() => scroll("left")}
-          className="absolute -left-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
+          className="absolute -left-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div ref={scrollRef} className="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
           {items.map((item) => (
-            <ItemCard key={item.idx} item={item} userId={userId} />
+            <ItemCard key={`${item.external_id}-${item.idx}`} item={item} userId={userId} />
           ))}
         </div>
         <button
           onClick={() => scroll("right")}
-          className="absolute -right-3 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
+          className="absolute -right-1 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/70 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black"
         >
           <ChevronRight className="h-5 w-5" />
         </button>
@@ -356,17 +368,23 @@ function RecommendationRowSection({ row, userId }: { row: RecommendationRow; use
     sbert_games: "🎯", sbert_movies: "🎬", popular: "🔥",
   };
 
+  // Determine dominant domain for row background tint
+  const dominantDomain = movies.length > games.length ? "movie" : "game";
+  const sectionBg = dominantDomain === "movie"
+    ? "bg-blue-950/10 border border-blue-900/20"
+    : "bg-purple-950/10 border border-purple-900/20";
+
   return (
     <section className="px-4 sm:px-6">
-      <div className="mx-auto max-w-7xl">
+      <div className={`mx-auto max-w-7xl rounded-xl p-4 ${sectionBg}`}>
         <div className="mb-3 flex items-center gap-2">
           <span className="text-xl">{rowIcon[row.key] || "📌"}</span>
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-white">{row.title}</h2>
-              {(row as any).model_tag && (
+              {row.model_tag && (
                 <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-medium text-indigo-300 border border-indigo-500/30">
-                  {(row as any).model_tag}
+                  {row.model_tag}
                 </span>
               )}
             </div>
@@ -374,12 +392,9 @@ function RecommendationRowSection({ row, userId }: { row: RecommendationRow; use
           </div>
         </div>
 
-        <div className="space-y-4">
-          <DomainLane items={movies} userId={userId} label="Movies" emoji="🎬" />
-          {movies.length > 0 && games.length > 0 && (
-            <div className="border-t border-gray-800/60" />
-          )}
-          <DomainLane items={games}  userId={userId} label="Games"  emoji="🎮" />
+        <div className="space-y-3">
+          <DomainLane items={movies} userId={userId} label="Movies" emoji="🎬" domain="movie" />
+          <DomainLane items={games}  userId={userId} label="Games"  emoji="🎮" domain="game" />
         </div>
       </div>
     </section>
@@ -394,7 +409,11 @@ function ItemCard({ item, userId }: { item: ItemOut; userId: number }) {
   return (
     <Link href={`/item/${item.external_id}?user=${userId}`}>
       <div
-        className="card-hover group relative w-[160px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-gray-800 bg-[#12121a] sm:w-[180px]"
+        className={`card-hover group relative w-[160px] shrink-0 cursor-pointer overflow-hidden rounded-lg bg-[#12121a] sm:w-[180px] ${
+          item.domain === "movie"
+            ? "border border-blue-800/40 hover:border-blue-500/60"
+            : "border border-purple-800/40 hover:border-purple-500/60"
+        }`}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
