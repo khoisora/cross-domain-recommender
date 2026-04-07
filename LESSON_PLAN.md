@@ -587,11 +587,11 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 
 | Regime | Model | Base | +cooc | Δ |
 |---|---|---|---|---|
-| LLO | MF-BPR | 0.0120 | 0.0295 | +146% |
-| LLO | NCF | 0.0245 | 0.0395 | +61% |
-| LLO | LightGCN | 0.0570 | 0.0620 | +9% |
-| LLO | PTUPCDR | 0.0275 | 0.0355 | +29% |
-| LLO | BiTGCF | 0.0410 | 0.0475 | +16% |
+| LLO | MF-BPR | 0.0445 | 0.0520 | +17% |
+| LLO | NCF | 0.0210 | 0.0330 | +57% |
+| LLO | LightGCN | 0.0475 | 0.0610 | +28% |
+| LLO | PTUPCDR | 0.0335 | 0.0340 | +1.5% |
+| LLO | BiTGCF | 0.0400 | 0.0420 | +5% |
 | Cold | LightGCN | 0.0067 | 0.0261 | +289% |
 | Cold | EMCDR | 0.0334 | 0.0341 | +2% |
 | Cold | CMF | 0.0007 | 0.0321 | +45× |
