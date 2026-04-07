@@ -94,11 +94,13 @@ def main() -> None:
                     algo, m["recall@10"], m_cooc["recall@10"], delta, pct)
 
     # --- MF-BPR (single-domain) ---
+    # lr=0.05: numpy SGD with lr=0.005 stalls at loss=0.693 (random) on sparse
+    # datasets — gradient steps too small to escape flat initialization region.
     t0 = time.time()
     m = MatrixFactorizationBPR(data_sd.num_users, data_sd.num_items,
                                 embedding_dim=64, device=data_sd.device)
     m.fit(data_sd.target_train, data_sd.user_to_idx, data_sd.item_to_idx,
-          epochs=50, lr=0.001, reg_lambda=0.01, batch_size=4096,
+          epochs=60, lr=0.05, reg_lambda=0.01,
           positive_threshold=POSITIVE_THRESHOLD)
     logger.info("MF-BPR trained in %.1fs", time.time() - t0)
     run("MF_BPR", m, data_sd, "MF-BPR single-domain LLO, L3 overlap dataset")

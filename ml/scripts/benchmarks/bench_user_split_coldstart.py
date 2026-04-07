@@ -113,7 +113,7 @@ def main() -> None:
     t0 = time.time()
     model = MatrixFactorizationBPR(data.num_users, data.num_items, embedding_dim=64, device=data.device)
     model.fit(data.game_train, data.user_to_idx, data.item_to_idx,
-              epochs=50, lr=0.001, reg_lambda=0.01, batch_size=4096,
+              epochs=60, lr=0.05, reg_lambda=0.01,
               positive_threshold=POSITIVE_THRESHOLD)
     metrics = evaluate_cross_domain("MF_BPR", lambda uid: model.predict(uid), data)
     save_result(

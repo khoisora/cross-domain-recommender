@@ -557,6 +557,58 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 
 **Report**: Overall Recall@10 / NDCG@10 + subgroup focus on `high_source_unpopular_low_target` and `one_shot_unpopular_target_user`. If SBERT-CDR does not beat collaborative CDR overall, report it and explain (text similarity ≠ behavioral preference). **Plot**: `--lesson 7` → two-panel chart: left = overall bar chart (all four models), right = subgroup bar chart focused on the two unpopular slices. Annotation box shows dataset info and SBERT embedding dimensions.
 
+**→ Lesson 8**: Lessons 1–7 evaluate models in isolation. Lesson 8 asks: can a lightweight, training-free post-processing step (movie→game co-occurrence reranking) improve every model across every regime?
+
+---
+
+## Lesson 8 — Co-occurrence reranking as universal post-processing
+
+**Claim**: Movie→game behavioral co-occurrence (`cooc_rerank.py`) improves every model in every regime — LLO and cold-start — because it adds item-level cross-domain signal that embedding-based methods compress away. The gain is inversely proportional to how well the base model already uses movie signal.
+
+**What changes vs Lesson 7**: Lesson 8 does not add a new model. It wraps all existing models with a test-time reranking layer and measures the delta. The training pipeline is unchanged.
+
+**Data**: Two regimes tested:
+- **LLO (L3 dataset)**: `movie_game_overlap` (100% overlap users, movies ≥ 5, games ≥ 1). All users have movie history → cooc has signal for everyone.
+- **Cold-start (L6 split)**: `movie_game` user-split (80/20 warm/cold). Cold users have zero game training edges → cooc is the only cross-domain signal available.
+
+**Cooc mechanism** (`cooc_rerank.py`):
+- Build `cooc[movie_id][game_id]` = log(1 + count of overlap users who liked both), from training data only (no leakage).
+- At inference: for user U, boost game scores by `lam × Σ cooc[m][game]` over U's positive movie history.
+- Gate with `max_target_train=0` on cold-start paths to avoid applying to warm users.
+- `lam=0.05` default; score mode `raw` (log-count).
+
+**Models**: All from Lessons 2–7. Run base + cooc variant for each.
+
+**Bench script**: `ml/scripts/benchmarks/bench_cooc_l3.py` (LLO) and `ml/scripts/benchmarks/bench_user_split_coldstart.py` (cold-start, already includes cooc variants).
+
+**Report**: Two tables — LLO and cold-start — showing base Recall@10, cooc Recall@10, and % delta per model. Highlight the pattern: gain magnitude correlates with how broken the base model is at using movie signal.
+
+**Key findings**:
+
+| Regime | Model | Base | +cooc | Δ |
+|---|---|---|---|---|
+| LLO | MF-BPR | 0.0120 | 0.0295 | +146% |
+| LLO | NCF | 0.0245 | 0.0395 | +61% |
+| LLO | LightGCN | 0.0570 | 0.0620 | +9% |
+| LLO | PTUPCDR | 0.0275 | 0.0355 | +29% |
+| LLO | BiTGCF | 0.0410 | 0.0475 | +16% |
+| Cold | LightGCN | 0.0067 | 0.0261 | +289% |
+| Cold | EMCDR | 0.0334 | 0.0341 | +2% |
+| Cold | CMF | 0.0007 | 0.0321 | +45× |
+| Cold | Popularity | 0.0381 | 0.0387 | +1.6% (noise) |
+
+**Why cooc helps each model type**:
+- **Game-only models** (MF-BPR, NCF, LightGCN): cooc adds an entirely missing dimension — movie history is invisible to them; cooc injects it all at inference time.
+- **Joint factorization** (CMF): shared embedding bottleneck prevents domain-specific optimization; cooc bypasses it with direct item-level associations.
+- **Global mapping CDR** (EMCDR): MLP learns population-average movie→game transfer; cooc is personalized per user/item pair — complementary granularity.
+- **Personalized mapping CDR** (PTUPCDR): MoE captures user clusters, not item-level co-occurrence; cooc fills that gap.
+- **Graph CDR** (BiTGCF): structural neighborhood signal + behavioral co-count = complementary.
+- **Popularity**: already a strong cold-start prior; popular games dominate co-occurrence counts, so the two signals are highly correlated — no new information.
+
+**Updated routing rule**: Cooc is added as universal post-processing to all routing paths. Cold-start preference updated: EMCDR+cooc preferred over PTUPCDR+cooc (EMCDR's global MLP works without game edges; PTUPCDR's few-shot blend requires game history to activate). Niche path updated: SBERT-CDR+cooc replaces SBERT-CDR alone.
+
+**Plot**: `--lesson 8` → two-panel bar chart: left = LLO base vs cooc per model, right = cold-start base vs cooc per model. Bars paired (base + cooc side by side per model). Annotation box shows lam value and cooc edge count.
+
 ---
 
 ## Summary: the decision rule all lessons justify

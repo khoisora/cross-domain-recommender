@@ -47,8 +47,10 @@ def main() -> None:
         data.num_users, data.num_items, embedding_dim=64, device="cpu",
     )
     t0 = time.time()
+    # lr=0.05: lr=0.005 stalls at loss=0.693 (random) on sparse datasets because
+    # numpy SGD gradient steps are too small to escape the flat initialization region.
     model.fit(data.target_train, data.user_to_idx, data.item_to_idx,
-              epochs=60, lr=0.005, reg_lambda=0.01,
+              epochs=60, lr=0.05, reg_lambda=0.01,
               positive_threshold=POSITIVE_THRESHOLD)
     train_time = time.time() - t0
 
@@ -60,7 +62,7 @@ def main() -> None:
         dataset_info=data.dataset_info,
         lesson=args.lesson,
         train_time=train_time,
-        description="BPR pairwise, emb=64, epochs=60, lr=0.005, reg=0.01",
+        description="BPR pairwise, emb=64, epochs=60, lr=0.05, reg=0.01",
     )
 
 
