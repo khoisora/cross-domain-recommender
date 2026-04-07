@@ -324,13 +324,13 @@ function DomainLane({ items, userId, label, emoji, domain }: {
   const bg = isMovie
     ? "bg-gradient-to-r from-blue-950/30 via-blue-950/10 to-transparent border-l-2 border-blue-500/40"
     : "bg-gradient-to-r from-purple-950/30 via-purple-950/10 to-transparent border-l-2 border-purple-500/40";
-  const iconColor = isMovie ? "text-blue-500/[0.07]" : "text-purple-500/[0.07]";
+  const iconColor = isMovie ? "text-blue-400/[0.12]" : "text-purple-400/[0.12]";
   const LaneIcon = isMovie ? Film : Gamepad2;
 
   return (
     <div className={`relative rounded-lg px-3 py-3 overflow-hidden ${bg}`}>
-      {/* Large watermark icon behind the lane */}
-      <LaneIcon className={`absolute -left-4 top-1/2 -translate-y-1/2 h-32 w-32 ${iconColor} pointer-events-none select-none`} strokeWidth={1.2} />
+      {/* Large watermark icon — peeks from behind the first card */}
+      <LaneIcon className={`absolute -left-6 top-1/2 -translate-y-1/2 h-48 w-48 ${iconColor} pointer-events-none select-none`} strokeWidth={0.8} />
 
       <div className="relative z-10">
         <p className={`mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${
