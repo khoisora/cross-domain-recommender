@@ -68,8 +68,9 @@ export async function searchItems(query: string, limit: number = 20, userId?: nu
   return fetchJSON<SearchResponse>(`${API_BASE}/api/items/search?${params}`);
 }
 
-export async function getItem(externalId: string): Promise<ItemDetail> {
-  return fetchJSON<ItemDetail>(`${API_BASE}/api/items/${externalId}`);
+export async function getItem(externalId: string, userId?: number): Promise<ItemDetail> {
+  const params = userId ? `?user_id=${userId}` : "";
+  return fetchJSON<ItemDetail>(`${API_BASE}/api/items/${externalId}${params}`);
 }
 
 // ── Ratings ─────────────────────────────────────────────────────────────

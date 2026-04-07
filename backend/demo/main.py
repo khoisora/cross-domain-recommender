@@ -28,6 +28,7 @@ import numpy as np
 from backend.demo.store import DemoStore
 from backend.demo.recommender import HybridRecommender
 from backend.demo.database import DemoDB
+from backend.demo.retrain import start_retrain_scheduler, stop_retrain_scheduler, run_retrain_now, get_last_retrain
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,7 @@ class ItemDetail(BaseModel):
     description: str = ""
     avg_rating: Optional[float] = None
     rating_count: int = 0
+    user_rating: Optional[float] = None
     similar_items: list[SimilarItem] = []
 
 class SearchResponse(BaseModel):
@@ -122,7 +124,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         existing = store.user_ratings.get(r["user_id"], [])
         if not any(x["item_id"] == r["item_id"] for x in existing):
             store.add_rating(r["user_id"], r["item_id"], r["rating"])
+    # Start hourly retrain scheduler (LightGCN re-trains with latest ratings)
+    start_retrain_scheduler(interval_seconds=3600)
+    logger.info("Retrain scheduler started (hourly)")
     yield
+    stop_retrain_scheduler()
 
 app = FastAPI(title="CrossRec Demo", version="2.0.0", lifespan=lifespan)
 
@@ -330,12 +336,11 @@ async def search_items(
 
 
 @app.get("/api/items/{external_id}", response_model=ItemDetail)
-async def get_item(external_id: str):
-    """Get item details by external_id. Also returns SBERT similar items."""
+async def get_item(external_id: str, user_id: Optional[int] = Query(None)):
+    """Get item details by external_id. Returns SBERT similar items + user's rating."""
     s = _store()
     meta = s.items_by_ext.get(external_id)
     if not meta:
-        # Try by DB idx (backward compat)
         try:
             db_idx = int(external_id)
             meta = s.items_by_db_idx.get(db_idx)
@@ -343,6 +348,25 @@ async def get_item(external_id: str):
             pass
     if not meta:
         raise HTTPException(404, f"Item {external_id} not found")
+
+    # Look up user's rating for this item
+    user_rating = None
+    if user_id is not None:
+        try:
+            user = _resolve_user(user_id)
+            ext_id = user["external_id"]
+            item_ext = meta.get("external_id", "")
+            for r in s.user_ratings.get(ext_id, []):
+                if r["item_id"] == item_ext:
+                    user_rating = r["rating"]
+                    break
+            # Also check DB
+            if user_rating is None:
+                db_rating = _db().get_user_rating_for_item(user_id, meta.get("idx", 0))
+                if db_rating is not None:
+                    user_rating = db_rating
+        except Exception:
+            pass
 
     # SBERT similar items
     similar: list[SimilarItem] = []
@@ -371,8 +395,23 @@ async def get_item(external_id: str):
         description=meta.get("description") or "",
         avg_rating=meta.get("avg_rating"),
         rating_count=meta.get("rating_count") or 0,
+        user_rating=user_rating,
         similar_items=similar[:12],
     )
+
+
+@app.post("/api/retrain")
+async def trigger_retrain():
+    """Manually trigger model retraining. Also runs on hourly schedule."""
+    result = run_retrain_now()
+    return result
+
+
+@app.get("/api/retrain/status")
+async def retrain_status():
+    """Check last retrain status."""
+    last = get_last_retrain()
+    return last or {"status": "no retrain yet", "scheduled": "hourly"}
 
 
 @app.post("/api/ratings", response_model=RatingResponse)

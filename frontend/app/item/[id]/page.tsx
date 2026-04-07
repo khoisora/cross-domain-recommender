@@ -43,8 +43,10 @@ export default function ItemDetailPage() {
     setLoading(true);
     setSbertSimilar([]);
     setCrossDomainSimilar([]);
-    getItem(itemId).then((it) => {
+    getItem(itemId, userId || undefined).then((it) => {
       setItem(it);
+      // Restore user's saved rating
+      if (it?.user_rating) setUserRating(it.user_rating);
       // SBERT similar items are included in the item detail response
       if (it?.similar_items) {
         setSbertSimilar(it.similar_items.map((s: any) => ({

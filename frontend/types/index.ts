@@ -60,6 +60,7 @@ export interface ItemDetail {
   avg_rating: number | null;
   rating_count: number;
   year: string;
+  user_rating?: number;
   similar_items?: SimilarItem[];
 }
 

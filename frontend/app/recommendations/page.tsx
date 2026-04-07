@@ -243,7 +243,7 @@ export default function RecommendationsPage() {
         </div>
       )}
 
-      {/* Past Rated Items — collapsible */}
+      {/* Your Rated Items — card lanes by domain */}
       {user?.ratings && user.ratings.length > 0 && (
         <div className="mx-auto mt-4 max-w-7xl px-4 sm:px-6">
           <button
@@ -260,28 +260,28 @@ export default function RecommendationsPage() {
             <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${ratedOpen ? "rotate-180" : ""}`} />
           </button>
 
-          {ratedOpen && (
-            <div className="mt-2 rounded-xl border border-gray-800 bg-[#0d0d15] divide-y divide-gray-800/60">
-              {user.ratings.map((r) => (
-                <Link
-                  key={r.item_id}
-                  href={`/item/${r.external_id || r.item_id}?user=${userId}`}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#1a1a2e] transition-colors first:rounded-t-xl last:rounded-b-xl"
-                >
-                  <span className="text-base shrink-0">{r.domain === "movie" ? "🎬" : "🎮"}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-200 truncate">{r.title}</p>
-                    {r.genres && <p className="text-[10px] text-gray-500 truncate">{r.genres}</p>}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    {[1,2,3,4,5].map((s) => (
-                      <Star key={s} className={`h-3 w-3 ${s <= r.rating ? "fill-amber-400 text-amber-400" : "text-gray-700"}`} />
-                    ))}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
+          {ratedOpen && (() => {
+            const ratedMovies = user.ratings.filter((r) => r.domain === "movie").map((r) => ({
+              idx: 0, external_id: r.external_id || r.item_id, title: r.title,
+              domain: r.domain as "movie" | "game", image_url: r.image_url || "",
+              description: "", avg_rating: null, rating_count: 0,
+              score: r.rating, reason: `You rated ${r.rating}★`,
+              genres: "", tags: "", year: "",
+            }));
+            const ratedGames = user.ratings.filter((r) => r.domain === "game").map((r) => ({
+              idx: 0, external_id: r.external_id || r.item_id, title: r.title,
+              domain: r.domain as "movie" | "game", image_url: r.image_url || "",
+              description: "", avg_rating: null, rating_count: 0,
+              score: r.rating, reason: `You rated ${r.rating}★`,
+              genres: "", tags: "", year: "",
+            }));
+            return (
+              <div className="mt-2 space-y-3">
+                <DomainLane items={ratedMovies} userId={userId} label={`Movies You Rated (${ratedMovies.length})`} emoji="🎬" domain="movie" />
+                <DomainLane items={ratedGames} userId={userId} label={`Games You Rated (${ratedGames.length})`} emoji="🎮" domain="game" />
+              </div>
+            );
+          })()}
         </div>
       )}
 

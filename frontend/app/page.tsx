@@ -152,7 +152,7 @@ export default function HomePage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {users
               .filter((u) => u.group === activeGroup)
-              .slice(0, 30)
+              .slice(0, 20)
               .map((user) => (
               <button
                 key={user.id}
