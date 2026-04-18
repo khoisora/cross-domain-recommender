@@ -12,12 +12,8 @@ Run:  PYTHONPATH=. uvicorn backend.demo.main:app --port 8000
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
-from typing import Optional
-
-from pathlib import Path as _Path
-
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,7 +53,7 @@ class ItemOut(BaseModel):
     domain: str = ""
     image_url: str = ""
     description: str = ""
-    avg_rating: Optional[float] = None
+    avg_rating: float | None = None
     rating_count: int = 0
     score: float = 0
     reason: str = ""
@@ -89,7 +85,7 @@ class SimilarItem(BaseModel):
     title: str
     domain: str
     image_url: str = ""
-    avg_rating: Optional[float] = None
+    avg_rating: float | None = None
     similarity: float = 0
 
 class ItemDetail(BaseModel):
@@ -99,9 +95,9 @@ class ItemDetail(BaseModel):
     domain: str
     image_url: str = ""
     description: str = ""
-    avg_rating: Optional[float] = None
+    avg_rating: float | None = None
     rating_count: int = 0
-    user_rating: Optional[float] = None
+    user_rating: float | None = None
     similar_games: list[SimilarItem] = []
     similar_movies: list[SimilarItem] = []
 
@@ -122,6 +118,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     store.load()
     db = DemoDB.get()
     db.upsert_sample_users(store.sample_users)
+    # Seed lightweight users (≤30 ratings) from the ratings store into the DB
+    # so all users shown on the home page are real DB users.
+    _seed_lightweight_users(store, db)
     # Restore runtime ratings from DB into in-memory store
     for r in db.get_all_runtime_ratings():
         existing = store.user_ratings.get(r["user_id"], [])
@@ -153,6 +152,48 @@ app.add_middleware(
 )
 
 
+# ── Startup helpers ───────────────────────────────────────────────────────────
+
+def _seed_lightweight_users(store: DemoStore, db: DemoDB) -> None:
+    """Insert users with ≤30 ratings into the DB so they can be resolved by ID.
+
+    The 200 sample users are all power users (50+ ratings). For the home page
+    we want CDR-interesting users with few ratings, so we pull them from the
+    full ratings store and persist them in SQLite.
+    """
+    # Seed enough users per CDR group to fill the home page
+    needed = {"cold_start": 30, "one_shot": 30, "few_target": 30, "balanced": 30}
+    count = 0
+    for ext_id, ratings in store.user_ratings.items():
+        n = len(ratings)
+        if n == 0 or n > 30:
+            continue
+        # Classify to check which group still needs users
+        games = sum(1 for r in ratings if r.get("domain") == "game")
+        if games == 0:
+            grp = "cold_start"
+        elif games == 1:
+            grp = "one_shot"
+        elif games <= 3:
+            grp = "few_target"
+        else:
+            grp = "balanced"
+        if needed.get(grp, 0) <= 0:
+            continue
+        if all(v <= 0 for v in needed.values()):
+            break
+        existing = db.get_user_by_external_id(ext_id)
+        if existing:
+            needed[grp] -= 1
+            continue
+        name = f"User {ext_id[:8]}"
+        db.create_user_with_ext_id(ext_id, name)
+        needed[grp] -= 1
+        count += 1
+    if count:
+        logger.info("Seeded %d lightweight users (≤30 ratings) into DB", count)
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _store() -> DemoStore:
@@ -165,22 +206,24 @@ def _recommender() -> HybridRecommender:
     return HybridRecommender(_store())
 
 def _classify_user(user: dict, store: DemoStore) -> str:
-    """Classify user into a group for the home page."""
+    """Classify user into a CDR-relevant group for the home page.
+
+    Groups reflect cross-domain cold-start severity:
+      cold_start: 0 game ratings — pure CDR transfer from movies
+      one_shot:   exactly 1 game rating + movies
+      few_target: 2-3 game ratings + movies
+      balanced:   4+ game ratings (warm user)
+    """
     ext_id = user.get("external_id", "")
     ratings = store.user_ratings.get(ext_id, [])
-    movies = sum(1 for r in ratings if r.get("domain") == "movie")
     games = sum(1 for r in ratings if r.get("domain") == "game")
     if games == 0:
         return "cold_start"
-    if movies > 0 and games > 0:
-        ratio = movies / (games + 1)
-        if ratio > 5:
-            return "movie_heavy"
-        elif games > movies:
-            return "game_heavy"
-        else:
-            return "balanced"
-    return "game_only"
+    if games == 1:
+        return "one_shot"
+    if games <= 3:
+        return "few_target"
+    return "balanced"
 
 def _resolve_user(user_id: int) -> dict:
     s = _store()
@@ -250,19 +293,32 @@ async def get_user_groups():
     """Get users organized by group for the home page."""
     s = _store()
     groups: dict[str, list[SampleUser]] = {
-        "balanced": [], "movie_heavy": [], "cold_start": [], "game_heavy": [],
+        "cold_start": [], "one_shot": [], "few_target": [], "balanced": [],
     }
-    for u in s.sample_users:
-        group = _classify_user(u, s)
-        if group in groups and len(groups[group]) < 30:
-            groups[group].append(SampleUser(
-                id=u["id"], external_id=u["external_id"],
-                name=u.get("name", ""), avatar=u.get("avatar", ""),
-                taste_summary=u.get("taste_summary", ""),
-                total_ratings=u.get("total_ratings", 0),
-                avg_rating=u.get("avg_rating", 0.0),
-                group=group,
-            ))
+    # Scan all DB users, filter to ≤30 ratings, classify by CDR group.
+    # Lightweight users were seeded into DB at startup from the ratings store.
+    db = _db()
+    for row in db.list_users():
+        ext_id = row["external_id"]
+        ratings = s.user_ratings.get(ext_id, [])
+        n_ratings = len(ratings)
+        if n_ratings == 0 or n_ratings > 30:
+            continue
+        if all(len(v) >= 30 for v in groups.values()):
+            break
+        u_dict = {"external_id": ext_id}
+        group = _classify_user(u_dict, s)
+        if group not in groups or len(groups[group]) >= 30:
+            continue
+        movies = sum(1 for r in ratings if r.get("domain") == "movie")
+        games = sum(1 for r in ratings if r.get("domain") == "game")
+        groups[group].append(SampleUser(
+            id=row["id"], external_id=ext_id,
+            name=row["name"], avatar=row.get("avatar", ""),
+            taste_summary=f"{movies} movies, {games} games",
+            total_ratings=n_ratings,
+            avg_rating=0.0, group=group,
+        ))
     return UserGroupResponse(groups=groups)
 
 
@@ -328,7 +384,7 @@ async def get_recommendations(user_id: int):
 async def search_items(
     q: str = Query("", min_length=0),
     limit: int = Query(20, ge=1, le=50),
-    domain: Optional[str] = Query(None),
+    domain: str | None = Query(None),
 ):
     s = _store()
     if not q:
@@ -352,7 +408,7 @@ async def search_items(
 
 
 @app.get("/api/items/{external_id}", response_model=ItemDetail)
-async def get_item(external_id: str, user_id: Optional[int] = Query(None)):
+async def get_item(external_id: str, user_id: int | None = Query(None)):
     """Get item details by external_id. Returns SBERT similar items + user's rating."""
     s = _store()
     meta = s.items_by_ext.get(external_id)

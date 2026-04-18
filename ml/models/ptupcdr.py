@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import torch
@@ -39,11 +39,16 @@ class _HyperMapper(nn.Module):
 
     def __init__(self, d: int, n_experts: int = 8) -> None:
         super().__init__()
+        # Gate network: preference vector → softmax weights over K experts
         self.gate = nn.Sequential(nn.Linear(d, d * 2), nn.ReLU(), nn.Linear(d * 2, n_experts))
+        # K expert linear transforms, each d×d. Scaled init prevents exploding outputs.
         self.experts = nn.Parameter(torch.randn(n_experts, d, d) * (1.0 / d ** 0.5))
+        # Residual bias path for identity-like initialization
         self.bias = nn.Linear(d, d, bias=True)
 
     def forward(self, pref: torch.Tensor) -> torch.Tensor:
+        # Soft mixture-of-experts: each user gets a personalized linear transform
+        # F = sum_k(gate_k * W_k), then output = F @ pref + bias(pref)
         gate_w = torch.softmax(self.gate(pref), dim=-1)           # (B, K)
         F = torch.einsum("bk,kij->bij", gate_w, self.experts)     # (B, d, d)
         mapped = torch.bmm(F, pref.unsqueeze(-1)).squeeze(-1)      # (B, d)
@@ -60,22 +65,24 @@ class PTUPCDRWrapper:
         self.embedding_dim = embedding_dim
         self.device = device
         self._model = None
-        self._rb_users: Optional[np.ndarray] = None
-        self._rb_items: Optional[np.ndarray] = None
-        self._valid_items: Optional[np.ndarray] = None
-        self._valid_users: Optional[np.ndarray] = None
-        self.user_embeddings: Optional[np.ndarray] = None
-        self.item_embeddings: Optional[np.ndarray] = None
+        self._rb_users: np.ndarray | None = None
+        self._rb_items: np.ndarray | None = None
+        self._valid_items: np.ndarray | None = None
+        self._valid_users: np.ndarray | None = None
+        self.user_embeddings: np.ndarray | None = None
+        self.item_embeddings: np.ndarray | None = None
 
     def fit(self, ratings, user_to_idx: dict, item_to_idx: dict,
             epochs: int = 20, lr: float = 0.001, reg_lambda: float = 1e-4,
             batch_size: int = 4096, positive_threshold: float = 4.0,
             source_domain: str = "movie", target_domain: str = "game",
             meta_epochs: int = 30, meta_lr: float = 0.001, n_experts: int = 8,
-            model_hyperparams: Optional[dict[str, Any]] = None) -> dict[str, float]:
+            model_hyperparams: dict[str, Any] | None = None) -> dict[str, float]:
         t0 = time.time()
 
-        # Phase 1+2: Train source + target MF (skip OVERLAP mapping)
+        # Phase 1+2: Train source-domain MF (movies) and target-domain MF (games)
+        # separately. We reuse EMCDR's training pipeline but skip its OVERLAP
+        # mapping phase — PTUPCDR replaces it with the HyperMapper below.
         extra: dict[str, Any] = {
             "train_epochs": [f"SOURCE:{epochs}", f"TARGET:{epochs}"],
             "latent_factor_model": "MF",
@@ -109,7 +116,8 @@ class PTUPCDRWrapper:
         overlap_n = int(model.overlapped_num_users)
         target_n = int(model.target_num_users)
 
-        # Map source item embeddings to our index space
+        # Map source item embeddings from RecBole's internal index space to our
+        # contiguous index space. rb_i=0 is RecBole's PAD token (unmapped items).
         src_item_np = src_item_emb_all.detach().numpy()
         src_item_our = np.zeros((len(item_to_idx), d), dtype=np.float32)
         for our_i, rb_i in enumerate(self._rb_items):
@@ -130,6 +138,10 @@ class PTUPCDRWrapper:
         tgt_ratings = tgt_ratings.dropna(subset=["_uid"])
         game_counts = tgt_ratings.groupby(tgt_ratings["_uid"].astype(int)).size().to_dict()
 
+        # Build per-user preference vector = mean of source item embeddings for
+        # movies the user rated. This captures the user's movie taste as a dense
+        # vector in source embedding space. Falls back to the source user embedding
+        # if no valid item embeddings exist (e.g., all items were unmapped).
         n_users = len(user_to_idx)
         pref_np = np.zeros((n_users, d), dtype=np.float32)
         for uid_idx, grp in src_ratings.groupby("_uid"):
@@ -142,7 +154,9 @@ class PTUPCDRWrapper:
 
         logger.info("PTUPCDR: preferences computed (%.1fs)", time.time() - t0)
 
-        # Phase 4: Train HyperMapper on overlap users
+        # Phase 4: Train HyperMapper on overlap users (users with both movie and
+        # game data). The mapper learns to transform source preferences into target
+        # embeddings. RecBole assigns IDs [0, overlap_n) to overlap users.
         overlap_mask = (self._rb_users > 0) & (self._rb_users < overlap_n)
         overlap_idx = np.where(overlap_mask)[0]
 
@@ -171,7 +185,9 @@ class PTUPCDRWrapper:
         else:
             logger.warning("No overlap users — PTUPCDR degrades to preference-mean scoring")
 
-        # Phase 5: Build final user embeddings with blending
+        # Phase 5: Build final user embeddings with blending.
+        # Run all user preferences through the trained HyperMapper in chunks
+        # to avoid OOM on large user sets.
         mapper.eval()
         with torch.no_grad():
             all_pref = torch.tensor(pref_np, dtype=torch.float32)
@@ -180,14 +196,20 @@ class PTUPCDRWrapper:
                 mapped_chunks.append(mapper(all_pref[start:start + 1024]).detach().numpy())
             mapped_np = np.concatenate(mapped_chunks, axis=0)
 
+        # Blend mapped source preference with target-domain MF embedding.
+        # Weight w = 1/(1+k) where k = number of game interactions:
+        #   k=0 (cold-start): 100% mapped preference (full transfer from movies)
+        #   k=1: 50/50 blend
+        #   k→∞: converges to target MF embedding (movies become irrelevant)
         tgt_user_np = tgt_user_emb_all.detach().numpy()
         final_user_emb = np.zeros((n_users, d), dtype=np.float32)
         for our_idx in range(n_users):
             rb_u = self._rb_users[our_idx]
-            if rb_u == 0:
+            if rb_u == 0:  # unmapped user (PAD token)
                 continue
             k = game_counts.get(our_idx, 0)
             if k == 0 or rb_u >= target_n:
+                # Pure cold-start or source-only user: rely entirely on mapped preference
                 final_user_emb[our_idx] = mapped_np[our_idx]
             else:
                 w = 1.0 / (1.0 + k)
@@ -205,6 +227,8 @@ class PTUPCDRWrapper:
         self.user_embeddings = final_user_emb
         self.item_embeddings = final_item_emb
         self._valid_items = valid_items
+        # A user is valid for prediction only if they have a RecBole mapping AND
+        # a non-zero preference vector (i.e., they rated at least one source item)
         pref_norms = np.linalg.norm(pref_np, axis=1)
         self._valid_users = (self._rb_users != 0) & (pref_norms > 1e-8)
 
@@ -213,7 +237,7 @@ class PTUPCDRWrapper:
                     self._valid_users.sum(), n_users, valid_items.sum(), len(item_to_idx), train_time)
         return {"train_time": train_time}
 
-    def predict(self, user_idx: int, item_indices: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
         if self.user_embeddings is None:
             raise ValueError("Model not trained yet")
         if not self._valid_users[user_idx]:

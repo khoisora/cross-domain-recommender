@@ -2,15 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps
+# System deps for building native extensions (torch, scipy, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-# Python deps (install before copying code for caching)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastapi uvicorn
+# Python deps — use Docker-specific requirements that skip heavy ML-only
+# packages (cornac, matplotlib, seaborn, pytest) not needed by the demo backend.
+# Install CPU-only torch first (much smaller download than full torch+CUDA),
+# then the rest of the deps.
+COPY requirements-docker.txt .
+RUN pip install --no-cache-dir --timeout 300 \
+    torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir --timeout 300 -r requirements-docker.txt
 
 # Copy application code
 COPY backend/ backend/

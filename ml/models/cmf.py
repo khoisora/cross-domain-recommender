@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
 
 import numpy as np
 import torch
@@ -31,12 +30,12 @@ class CMF:
         self.embedding_dim = embedding_dim
         self.device = device
         self._model = None
-        self._rb_users: Optional[np.ndarray] = None
-        self._rb_items: Optional[np.ndarray] = None
-        self._valid_items: Optional[np.ndarray] = None
-        self._valid_users: Optional[np.ndarray] = None
-        self.user_embeddings: Optional[np.ndarray] = None
-        self.item_embeddings: Optional[np.ndarray] = None
+        self._rb_users: np.ndarray | None = None
+        self._rb_items: np.ndarray | None = None
+        self._valid_items: np.ndarray | None = None
+        self._valid_users: np.ndarray | None = None
+        self.user_embeddings: np.ndarray | None = None
+        self.item_embeddings: np.ndarray | None = None
 
     def fit(self, ratings, user_to_idx, item_to_idx,
             epochs: int = 100, lr: float = 0.0005, reg_lambda: float = 0.0,
@@ -65,7 +64,7 @@ class CMF:
                     train_time, self._valid_items.sum(), len(self._rb_items))
         return {"train_time": train_time}
 
-    def predict(self, user_idx: int, item_indices: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
         if self.user_embeddings is None:
             raise ValueError("Model not trained yet")
         if not self._valid_users[user_idx]:
@@ -73,6 +72,8 @@ class CMF:
             return np.full(n, -np.inf, dtype=np.float64)
         user_emb = self.user_embeddings[user_idx]
         items = self.item_embeddings if item_indices is None else self.item_embeddings[item_indices]
+        # CMF uses sigmoid(dot product) to bound scores in (0, 1), matching the
+        # BPR training objective where positive pairs should score close to 1.
         scores = 1.0 / (1.0 + np.exp(-(items @ user_emb).astype(np.float64)))
         valid = self._valid_items if item_indices is None else self._valid_items[item_indices]
         scores[~valid] = -np.inf

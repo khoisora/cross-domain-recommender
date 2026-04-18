@@ -61,8 +61,10 @@ def fit_cdr(
     """
     user_to_idx, item_to_idx = normalize_maps(user_to_idx, item_to_idx)
 
+    # Split ratings by domain — RecBole-CDR expects separate source/target files
     src = ratings[ratings["domain"] == source_domain][["user_id", "item_id", "rating"]].copy()
     tgt = ratings[ratings["domain"] == target_domain][["user_id", "item_id", "rating"]].copy()
+    # Normalize IDs to canonical string form for consistent matching
     for d in (src, tgt):
         d.dropna(subset=["user_id", "item_id"], inplace=True)
         d["user_id"] = d["user_id"].map(normalize_id)
@@ -121,7 +123,9 @@ def fit_cdr(
 
         CrossDomainTrainer(config, model).fit(train_data, None, verbose=True, saved=False)
 
-        # Build our_idx → recbole unified ID maps
+        # Build our_idx → RecBole unified ID maps. ChainMap merges source and
+        # target remap dicts so lookups find the ID in whichever domain it appears.
+        # Value 0 = RecBole's PAD token, meaning the user/item was not seen.
         u_remap = ChainMap(dataset.source_user_ID_remap_dict, dataset.target_user_ID_remap_dict)
         i_remap = ChainMap(dataset.source_item_ID_remap_dict, dataset.target_item_ID_remap_dict)
         rb_users = np.zeros(len(user_to_idx), dtype=np.int64)

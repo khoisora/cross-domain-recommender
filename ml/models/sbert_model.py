@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -20,7 +19,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _parse_text_field(value: Optional[str], max_items: int = 8) -> str:
+def _parse_text_field(value: str | None, max_items: int = 8) -> str:
     """Parse a JSON list or plain comma string into a short readable string."""
     if not value:
         return ""
@@ -42,8 +41,8 @@ class SBERTModel:
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         self.model_name = model_name
         self._encoder = None
-        self.item_embeddings: Optional[np.ndarray] = None
-        self.user_embeddings: Optional[np.ndarray] = None
+        self.item_embeddings: np.ndarray | None = None
+        self.user_embeddings: np.ndarray | None = None
         self.num_items: int = 0
         self.num_users: int = 0
         self.embedding_dim: int = 384
@@ -185,16 +184,22 @@ class SBERTModel:
                 tgt_accum[u_idx] += self.item_embeddings[i_idx]
                 tgt_counts[u_idx] += 1
 
+        # Compute per-user profiles based on which domains they have activity in.
+        # All three cases produce un-normalized embeddings that get L2-normalized
+        # at the end so cosine similarity = dot product at prediction time.
         user_emb = np.zeros((num_users, dim), dtype=np.float64)
         has_src = src_counts > 0
         has_tgt = tgt_counts > 0
 
+        # Source-only users: their profile is entirely from movie embeddings
         mask_src_only = has_src & ~has_tgt
         user_emb[mask_src_only] = src_accum[mask_src_only] / src_counts[mask_src_only, np.newaxis]
 
+        # Target-only users: profile from game embeddings only
         mask_tgt_only = has_tgt & ~has_src
         user_emb[mask_tgt_only] = tgt_accum[mask_tgt_only] / tgt_counts[mask_tgt_only, np.newaxis]
 
+        # Overlap users: weighted blend of source and target mean embeddings
         mask_both = has_src & has_tgt
         src_mean = np.where(src_counts[:, np.newaxis] > 0, src_accum / np.maximum(src_counts[:, np.newaxis], 1), 0)
         tgt_mean = np.where(tgt_counts[:, np.newaxis] > 0, tgt_accum / np.maximum(tgt_counts[:, np.newaxis], 1), 0)
@@ -203,6 +208,7 @@ class SBERTModel:
             (1 - source_weight) * tgt_mean[mask_both]
         )
 
+        # L2-normalize so predict() can use simple dot product for cosine similarity
         norms = np.linalg.norm(user_emb, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         self.user_embeddings = (user_emb / norms).astype(np.float32)

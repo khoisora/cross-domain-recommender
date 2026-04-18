@@ -8,11 +8,11 @@ PORT := 8000
 build:
 	docker build -t $(IMAGE_NAME) .
 
-# Run container (detached)
+# Run container (detached). SQLite DB lives inside the container.
+# To persist ratings across restarts, add: -v $(PWD)/data:/app/data
 run:
 	docker run -d --name $(CONTAINER_NAME) \
 		-p $(PORT):8000 \
-		-v $(PWD)/data:/app/data \
 		$(IMAGE_NAME)
 	@echo "CrossRec running at http://localhost:$(PORT)"
 

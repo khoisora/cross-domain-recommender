@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CrossRec — Hybrid Movie & Game Recommender</title>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Inter', sans-serif; background: #0a0a0f; color: #e5e5e5; min-height: 100vh; }
@@ -17,19 +17,23 @@
 
     /* Nav */
     .nav { position: sticky; top: 0; z-index: 50; background: rgba(10,10,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid #1e1e2e; padding: 12px 20px; }
-    .nav-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
-    .logo { font-size: 20px; font-weight: 700; background: linear-gradient(90deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; }
-    .nav-user { display: flex; align-items: center; gap: 12px; font-size: 14px; color: #9ca3af; }
+    .nav-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; position: relative; }
+    .nav-left { display: flex; align-items: center; gap: 12px; min-width: 120px; font-size: 13px; color: #9ca3af; }
+    .logo { font-size: 20px; font-weight: 700; background: linear-gradient(90deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; position: absolute; left: 50%; transform: translateX(-50%); }
+    .nav-right { display: flex; align-items: center; gap: 12px; font-size: 14px; color: #9ca3af; }
     .btn { padding: 6px 14px; border-radius: 8px; border: 1px solid #374151; background: transparent; color: #d1d5db; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
     .btn:hover { background: #1f2937; }
-    .btn-primary { background: linear-gradient(135deg, #4f46e5, #7c3aed); border: none; color: white; }
-    .btn-primary:hover { opacity: 0.9; }
+    .btn-icon { padding: 6px 8px; border: 1px solid #374151; border-radius: 8px; background: transparent; color: #9ca3af; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+    .btn-icon:hover { background: #1f2937; color: #e5e5e5; }
+    .btn-icon svg { width: 16px; height: 16px; }
 
     /* Hero */
     .hero { text-align: center; padding: 60px 20px 40px; }
     .hero h1 { font-size: 48px; font-weight: 800; background: linear-gradient(90deg, #60a5fa, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
     .hero p { color: #9ca3af; font-size: 16px; margin-bottom: 4px; }
     .hero .sub { font-size: 13px; color: #6b7280; }
+    .hero-icons { display: flex; justify-content: center; gap: 16px; margin: 20px 0 0; opacity: 0.4; }
+    .hero-icons svg { width: 28px; height: 28px; color: #818cf8; }
 
     /* Group tabs */
     .group-tabs { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 24px 0 8px; }
@@ -47,16 +51,18 @@
     .user-info p { font-size: 12px; color: #818cf8; }
     .user-info .meta { font-size: 11px; color: #6b7280; margin-top: 2px; }
 
-    /* Search */
-    .search-bar { max-width: 600px; margin: 0 auto; position: relative; }
-    .search-bar input { width: 100%; padding: 10px 16px; border-radius: 10px; border: 1px solid #374151; background: #0a0a14; color: white; font-size: 14px; outline: none; }
-    .search-bar input:focus { border-color: #4f46e5; }
-    .search-results { position: absolute; top: 100%; left: 0; right: 0; background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; max-height: 400px; overflow-y: auto; z-index: 30; margin-top: 4px; }
-    .search-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; cursor: pointer; transition: background 0.15s; }
+    /* Search overlay */
+    .search-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; }
+    .search-overlay.active { display: flex; align-items: flex-start; justify-content: center; padding-top: 80px; }
+    .search-box { width: 100%; max-width: 600px; }
+    .search-box input { width: 100%; padding: 14px 18px; border-radius: 12px; border: 1px solid #374151; background: #12121a; color: white; font-size: 16px; outline: none; }
+    .search-box input:focus { border-color: #4f46e5; }
+    .search-results { background: #12121a; border: 1px solid #1e1e2e; border-radius: 10px; max-height: 400px; overflow-y: auto; margin-top: 4px; }
+    .search-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; transition: background 0.15s; }
     .search-item:hover { background: #1a1a2e; }
     .search-item .domain-icon { font-size: 16px; }
-    .search-item .title { font-size: 13px; color: #e5e5e5; flex: 1; }
-    .search-item .rating { font-size: 11px; color: #fbbf24; }
+    .search-item .title { font-size: 14px; color: #e5e5e5; flex: 1; }
+    .search-item .rating { font-size: 12px; color: #fbbf24; }
 
     /* Recommendation rows */
     .rec-section { margin-bottom: 32px; }
@@ -78,9 +84,20 @@
     .lane-count.game { background: rgba(167,139,250,0.2); color: #fca5a5; }
 
     /* Card scroll */
-    .card-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; position: relative; z-index: 1; }
-    .card-scroll::-webkit-scrollbar { height: 4px; }
-    .card-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    .card-scroll-wrap { position: relative; }
+    .card-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; position: relative; z-index: 1; scroll-behavior: smooth; }
+    .card-scroll::-webkit-scrollbar { height: 6px; }
+    .card-scroll::-webkit-scrollbar-track { background: #1e1e2e; border-radius: 4px; }
+    .card-scroll::-webkit-scrollbar-thumb { background: #6366f1; border-radius: 4px; }
+    .domain-lane.game .card-scroll::-webkit-scrollbar-thumb { background: #dc2626; }
+    .domain-lane.game .card-scroll::-webkit-scrollbar-thumb:hover { background: #ef4444; }
+    .domain-lane.movie .card-scroll::-webkit-scrollbar-thumb { background: #2563eb; }
+    .domain-lane.movie .card-scroll::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+    .scroll-btn { position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; width: 32px; height: 32px; border-radius: 50%; border: 1px solid #374151; background: rgba(15,15,25,0.9); color: #e5e5e5; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; opacity: 0; pointer-events: none; }
+    .card-scroll-wrap:hover .scroll-btn { opacity: 1; pointer-events: auto; }
+    .scroll-btn:hover { background: #4f46e5; border-color: #4f46e5; }
+    .scroll-btn.left { left: -12px; }
+    .scroll-btn.right { right: -12px; }
 
     /* Item cards */
     .item-card { width: 160px; min-width: 160px; border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.2s; }
@@ -94,6 +111,7 @@
     .item-card .domain-badge { position: absolute; top: 6px; left: 6px; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
     .domain-badge.movie { background: rgba(37,99,235,0.9); color: #dbeafe; }
     .domain-badge.game { background: rgba(220,38,38,0.9); color: #fef2f2; }
+    .item-card .user-rating-badge { position: absolute; bottom: 6px; right: 6px; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: rgba(251,191,36,0.9); color: #1a1a2e; }
     .item-card .card-body { padding: 8px; background: #12121a; }
     .item-card .card-title { font-size: 11px; font-weight: 600; color: #e5e5e5; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .item-card .card-rating { font-size: 10px; color: #fbbf24; margin-top: 4px; }
@@ -101,8 +119,8 @@
     /* Item detail */
     .detail-wrap { max-width: 900px; margin: 0 auto; padding: 24px 20px; }
     .detail-header { display: flex; gap: 24px; margin-bottom: 32px; }
-    .detail-poster { width: 200px; min-width: 200px; aspect-ratio: 3/4; background: #1a1a2e; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-    .detail-poster img { width: 100%; height: 100%; object-fit: cover; }
+    .detail-poster { width: 220px; min-width: 220px; max-height: 300px; background: #1a1a2e; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .detail-poster img { width: 100%; height: 100%; object-fit: contain; max-height: 300px; }
     .detail-info h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
     .detail-info .domain-tag { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; }
     .detail-info .desc { font-size: 13px; color: #9ca3af; line-height: 1.6; margin-bottom: 16px; }
@@ -113,7 +131,6 @@
     .star-rating .star { font-size: 24px; cursor: pointer; color: #374151; transition: color 0.15s; }
     .star-rating .star.active { color: #fbbf24; }
     .star-rating .star:hover { color: #f59e0b; }
-    .rating-msg { font-size: 12px; color: #22c55e; height: 18px; }
 
     /* Similar section */
     .similar-section { margin-top: 32px; }
@@ -124,10 +141,11 @@
     .similar-section p { font-size: 12px; color: #6b7280; margin-bottom: 12px; }
     .similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 
-    /* Drag-to-scroll */
-    .card-scroll { cursor: grab; user-select: none; }
-    .card-scroll.dragging { cursor: grabbing; scroll-behavior: auto; }
-    .card-scroll.dragging .item-card { pointer-events: none; }
+    /* Rated items section */
+    .rated-section { margin-bottom: 24px; }
+    .rated-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; border: 1px solid #1e1e2e; background: #12121a; cursor: pointer; }
+    .rated-header .chevron { transition: transform 0.2s; font-size: 12px; color: #6b7280; }
+    .rated-header .chevron.open { transform: rotate(90deg); }
 
     /* Loading */
     .spinner { width: 32px; height: 32px; border: 3px solid #1e1e2e; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.6s linear infinite; margin: 40px auto; }
@@ -136,7 +154,8 @@
     @media (max-width: 640px) {
       .hero h1 { font-size: 32px; }
       .detail-header { flex-direction: column; }
-      .detail-poster { width: 100%; max-width: 240px; }
+      .detail-poster { width: 100%; max-width: 240px; max-height: 250px; }
+      .logo { font-size: 16px; }
     }
   </style>
 </head>
@@ -145,15 +164,26 @@
   <!-- NAV -->
   <nav class="nav hidden" id="nav">
     <div class="nav-inner">
-      <span class="logo" id="nav-logo">CrossRec</span>
-      <div class="nav-user">
+      <div class="nav-left">
         <span id="nav-username"></span>
-        <button class="btn" id="btn-search" onclick="toggleSearch()">Search</button>
-        <button class="btn" id="btn-refresh" onclick="triggerRetrain()">Refresh Models</button>
-        <button class="btn" onclick="goHome()">Log Out</button>
+      </div>
+      <span class="logo" id="nav-logo">CrossRec</span>
+      <div class="nav-right">
+        <button class="btn-icon" id="btn-search" title="Search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button class="btn" onclick="navigateTo('/')">Switch User</button>
       </div>
     </div>
   </nav>
+
+  <!-- SEARCH OVERLAY -->
+  <div class="search-overlay" id="search-overlay">
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Search movies & games..." oninput="doSearch(this.value)">
+      <div class="search-results" id="search-results"></div>
+    </div>
+  </div>
 
   <!-- PAGES -->
   <div id="page-home"></div>
@@ -161,11 +191,44 @@
   <div id="page-detail" class="hidden"></div>
 
   <script>
-    const API = 'http://localhost:8000';
+    const API = window.location.origin;
     let currentUser = null;
     let allUsers = [];
 
-    // ── ROUTING ─────────────────────────────────────────────
+    // ── HASH ROUTING ────────────────────────────────────────
+    function navigateTo(path) {
+      window.location.hash = path;
+    }
+
+    function handleRoute() {
+      const hash = window.location.hash.slice(1) || '/';
+      const parts = hash.split('/').filter(Boolean);
+
+      if (parts[0] === 'recs' && parts[1]) {
+        const userId = parseInt(parts[1]);
+        showPage('recs');
+        const user = allUsers.find(u => u.id === userId);
+        if (user) {
+          currentUser = user;
+          $('#nav-username').text(user.name);
+        }
+        // Always reload recs — SBERT rows update in real-time from latest ratings
+        _recsStale = false;
+        loadRecommendations(userId);
+      } else if (parts[0] === 'item' && parts[1]) {
+        const externalId = decodeURIComponent(parts[1]);
+        showPage('detail');
+        // Item detail works without a logged-in user (no star rating shown)
+        loadItemDetail(externalId);
+      } else {
+        currentUser = null;
+        showPage('home');
+        loadHome();
+      }
+    }
+
+    window.addEventListener('hashchange', handleRoute);
+
     function showPage(page) {
       $('#page-home, #page-recs, #page-detail').addClass('hidden');
       $(`#page-${page}`).removeClass('hidden');
@@ -173,33 +236,44 @@
       window.scrollTo(0, 0);
     }
 
-    function goHome() {
-      currentUser = null;
-      showPage('home');
-      loadHome();
-    }
-
     function selectUser(user) {
       currentUser = user;
       $('#nav-username').text(user.name);
-      showPage('recs');
-      loadRecommendations(user.id);
+      navigateTo(`/recs/${user.id}`);
     }
 
     function openItem(externalId) {
-      showPage('detail');
-      loadItemDetail(externalId);
+      navigateTo(`/item/${encodeURIComponent(externalId)}`);
     }
 
     // ── HOME PAGE ───────────────────────────────────────────
     const GROUP_META = {
-      balanced:    { label: 'Balanced',    desc: 'Active in both movies & games — LightGCN+cooc performs best' },
-      movie_heavy: { label: 'Movie Heavy', desc: 'Rich movie history, few games — CDR models transfer movie preferences' },
-      cold_start:  { label: 'Cold Start',  desc: 'Zero game history — EMCDR+cooc provides cold-start recommendations' },
-      game_heavy:  { label: 'Game Heavy',  desc: 'Primarily game players — LightGCN graph convolution is most effective' },
+      cold_start:       { label: 'Cold Start',       desc: 'Zero game history — EMCDR+cooc provides cold-start recommendations from movie taste alone' },
+      one_shot:         { label: '1-Shot Target',     desc: 'Exactly 1 game rating + rich movie history — CDR blends movie preference with minimal game signal' },
+      few_target:       { label: 'Few Target',        desc: '2-3 game ratings — CDR models blend transferred movie preferences with sparse game history' },
+      balanced:         { label: 'Balanced',          desc: 'Active in both movies & games — LightGCN graph + cooc performs best on these users' },
     };
 
-    let activeGroup = 'balanced';
+    let activeGroup = 'cold_start';
+    let groupedUsers = {};
+
+    function createUser() {
+      const name = $('#new-user-name').val().trim();
+      if (!name) return;
+      $('#create-user-btn').prop('disabled', true).text('Creating...');
+      $.ajax({
+        url: `${API}/api/users`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ name: name }),
+        success: function(user) {
+          selectUser(user);
+        },
+        error: function() {
+          $('#create-user-btn').prop('disabled', false).text('Start');
+        }
+      });
+    }
 
     function loadHome() {
       const html = `
@@ -209,18 +283,35 @@
           <p class="sub">Powered by LightGCN, EMCDR, PTUPCDR, SBERT, and Co-occurrence Reranking</p>
         </div>
         <div class="container">
-          <div class="search-bar" style="margin-bottom:32px">
-            <input type="text" id="home-search" placeholder="Search movies & games..." oninput="homeSearch(this.value)">
-            <div class="search-results hidden" id="home-search-results"></div>
+          <div style="max-width:440px;margin:0 auto 36px;padding:20px 24px;border-radius:14px;border:1px solid #1e1e2e;background:#12121a">
+            <div style="font-size:15px;font-weight:600;color:#e5e5e5;margin-bottom:4px">New here? Jump right in</div>
+            <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Create a user to get popularity-based recommendations instantly. Rate items to unlock personalized models.</div>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="new-user-name" placeholder="Enter your name..."
+                style="flex:1;padding:9px 14px;border-radius:8px;border:1px solid #374151;background:#0a0a14;color:white;font-size:14px;outline:none"
+                onkeydown="if(event.key==='Enter')createUser()">
+              <button id="create-user-btn" class="btn" onclick="createUser()"
+                style="background:linear-gradient(135deg,#4f46e5,#7c3aed);border:none;color:white;padding:9px 20px;font-weight:600">Start</button>
+            </div>
           </div>
+          <div style="text-align:center;font-size:13px;color:#6b7280;margin-bottom:16px">— or pick a sample user —</div>
           <div class="group-tabs" id="group-tabs"></div>
           <div class="group-desc" id="group-desc"></div>
           <div class="user-grid" id="user-grid"></div>
         </div>`;
       $('#page-home').html(html);
 
-      $.getJSON(`${API}/api/users`, function(users) {
-        allUsers = users;
+      // Use the backend's pre-classified groups (avoids N+1 API calls)
+      $.getJSON(`${API}/api/user-groups`, function(data) {
+        groupedUsers = data.groups;
+        // Flatten into allUsers for selectUser lookup
+        allUsers = [];
+        for (const [group, users] of Object.entries(groupedUsers)) {
+          for (const u of users) {
+            u._group = group;
+            allUsers.push(u);
+          }
+        }
         renderGroupTabs();
         renderUsers();
       });
@@ -229,9 +320,9 @@
     function renderGroupTabs() {
       let html = '';
       for (const [key, meta] of Object.entries(GROUP_META)) {
-        const count = allUsers.filter(u => u.group === key).length;
+        const users = groupedUsers[key] || [];
         const cls = key === activeGroup ? 'active' : '';
-        html += `<button class="group-tab ${cls}" onclick="switchGroup('${key}')">${meta.label}<span class="count">${count}</span></button>`;
+        html += `<button class="group-tab ${cls}" onclick="switchGroup('${key}')">${meta.label}<span class="count">${users.length}</span></button>`;
       }
       $('#group-tabs').html(html);
       $('#group-desc').text(GROUP_META[activeGroup]?.desc || '');
@@ -244,7 +335,7 @@
     }
 
     function renderUsers() {
-      const filtered = allUsers.filter(u => u.group === activeGroup).slice(0, 20);
+      const filtered = (groupedUsers[activeGroup] || []).slice(0, 30);
       let html = '';
       for (const u of filtered) {
         html += `
@@ -260,18 +351,29 @@
       $('#user-grid').html(html || '<p style="color:#6b7280;text-align:center">No users in this group</p>');
     }
 
-    function homeSearch(q) {
-      if (q.length < 2) { $('#home-search-results').addClass('hidden').empty(); return; }
+    // ── SEARCH ──────────────────────────────────────────────
+    function toggleSearch() {
+      const overlay = $('#search-overlay');
+      if (overlay.hasClass('active')) {
+        overlay.removeClass('active');
+      } else {
+        overlay.addClass('active');
+        setTimeout(() => $('#search-input').focus(), 50);
+      }
+    }
+
+    function doSearch(q) {
+      if (q.length < 2) { $('#search-results').empty(); return; }
       $.getJSON(`${API}/api/items/search?q=${encodeURIComponent(q)}&limit=15`, function(data) {
         let html = '';
         for (const it of data.items) {
-          html += `<div class="search-item" onclick="openItem('${it.external_id}')">
+          html += `<div class="search-item" onclick="openItem('${it.external_id}'); toggleSearch();">
             <span class="domain-icon">${it.domain === 'movie' ? '🎬' : '🎮'}</span>
             <span class="title">${esc(it.title)}</span>
             ${it.avg_rating ? `<span class="rating">★${it.avg_rating.toFixed(1)}</span>` : ''}
           </div>`;
         }
-        $('#home-search-results').html(html).removeClass('hidden');
+        $('#search-results').html(html);
       });
     }
 
@@ -279,43 +381,44 @@
     function loadRecommendations(userId) {
       $('#page-recs').html('<div class="spinner"></div>');
 
-      // Fetch user profile (for rated items) and recommendations in parallel
       $.when(
         $.getJSON(`${API}/api/users/${userId}`),
         $.getJSON(`${API}/api/recommendations/${userId}`)
       ).done(function(userData, recData) {
         const user = userData[0];
         const data = recData[0];
+        if (!currentUser) {
+          currentUser = { id: userId, name: user.name || 'User' };
+        }
+        $('#nav-username').text(user.name || '');
+
         let html = '<div class="container" style="padding-top:16px;padding-bottom:40px">';
 
-        // Search bar
-        html += `<div class="search-bar" style="margin-bottom:24px">
-          <input type="text" id="rec-search" placeholder="Search movies & games..." oninput="recSearch(this.value)">
-          <div class="search-results hidden" id="rec-search-results"></div>
-        </div>`;
-
-        // Your Rated Items (collapsible)
+        // Your Rated Items (expanded by default, shows user's star rating)
         if (user.ratings && user.ratings.length > 0) {
           const ratedMovies = user.ratings.filter(r => r.domain === 'movie');
           const ratedGames = user.ratings.filter(r => r.domain === 'game');
-          html += `<div style="margin-bottom:24px">
-            <div style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:1px solid #1e1e2e;background:#12121a" onclick="$('#rated-content').toggle()">
+          html += `<div class="rated-section">
+            <div class="rated-header" onclick="$(this).find('.chevron').toggleClass('open'); $('#rated-content').slideToggle(200)">
               <span style="font-size:15px">⭐</span>
               <span style="font-size:14px;font-weight:600;color:#e5e5e5">Your Rated Items</span>
               <span style="background:#1e1e2e;padding:1px 8px;border-radius:10px;font-size:10px;color:#9ca3af">${user.ratings.length}</span>
+              <span class="chevron open" style="margin-left:auto">▶</span>
             </div>
-            <div id="rated-content" style="display:none;margin-top:8px">`;
+            <div id="rated-content" style="margin-top:8px">`;
           if (ratedMovies.length > 0) {
             const movieCards = ratedMovies.map(r => ({
               external_id: r.external_id || r.item_id, title: r.title, domain: 'movie',
-              image_url: r.image_url || '', avg_rating: null, rating_count: 0, score: r.rating
+              image_url: r.image_url || '', avg_rating: null, rating_count: 0,
+              _user_rating: r.rating
             }));
             html += renderLane(movieCards, 'movie');
           }
           if (ratedGames.length > 0) {
             const gameCards = ratedGames.map(r => ({
               external_id: r.external_id || r.item_id, title: r.title, domain: 'game',
-              image_url: r.image_url || '', avg_rating: null, rating_count: 0, score: r.rating
+              image_url: r.image_url || '', avg_rating: null, rating_count: 0,
+              _user_rating: r.rating
             }));
             html += renderLane(gameCards, 'game');
           }
@@ -327,6 +430,8 @@
         }
         html += '</div>';
         $('#page-recs').html(html);
+      }).fail(function() {
+        $('#page-recs').html('<div class="container" style="padding:40px;text-align:center"><p style="color:#ef4444">Failed to load recommendations</p></div>');
       });
     }
 
@@ -369,7 +474,11 @@
           ${label}
           <span class="lane-count ${cls}">${items.length}</span>
         </div>
-        <div class="card-scroll">${cards}</div>
+        <div class="card-scroll-wrap">
+          <button class="scroll-btn left" onclick="scrollLane(this, -1)">‹</button>
+          <div class="card-scroll">${cards}</div>
+          <button class="scroll-btn right" onclick="scrollLane(this, 1)">›</button>
+        </div>
       </div>`;
     }
 
@@ -378,11 +487,14 @@
       const img = it.image_url
         ? `<img src="${it.image_url}" alt="" loading="lazy">`
         : `<span class="placeholder">${it.domain === 'movie' ? '🎬' : '🎮'}</span>`;
+      const userRating = it._user_rating
+        ? `<span class="user-rating-badge">★${it._user_rating}</span>` : '';
 
-      return `<div class="item-card ${cls}" onclick="openItem('${it.external_id}')">
+      return `<div class="item-card ${cls}" data-id="${it.external_id}">
         <div class="img-wrap">
           ${img}
           <span class="domain-badge ${cls}">${it.domain}</span>
+          ${userRating}
         </div>
         <div class="card-body">
           <div class="card-title">${esc(it.title)}</div>
@@ -391,41 +503,22 @@
       </div>`;
     }
 
-    function recSearch(q) {
-      if (q.length < 2) { $('#rec-search-results').addClass('hidden').empty(); return; }
-      $.getJSON(`${API}/api/items/search?q=${encodeURIComponent(q)}&limit=15`, function(data) {
-        let html = '';
-        for (const it of data.items) {
-          html += `<div class="search-item" onclick="openItem('${it.external_id}')">
-            <span class="domain-icon">${it.domain === 'movie' ? '🎬' : '🎮'}</span>
-            <span class="title">${esc(it.title)}</span>
-          </div>`;
-        }
-        $('#rec-search-results').html(html).removeClass('hidden');
-      });
-    }
-
-    function toggleSearch() {
-      // Focus the search input on rec page
-      const el = document.getElementById('rec-search');
-      if (el) el.focus();
-    }
-
     // ── ITEM DETAIL PAGE ────────────────────────────────────
     function loadItemDetail(externalId) {
       $('#page-detail').html('<div class="spinner"></div>');
-      const uid = currentUser ? currentUser.id : '';
-      $.getJSON(`${API}/api/items/${externalId}?user_id=${uid}`, function(item) {
+      const uidParam = currentUser ? `?user_id=${currentUser.id}` : '';
+      $.getJSON(`${API}/api/items/${externalId}${uidParam}`, function(item) {
         const isMovie = item.domain === 'movie';
-        const tagCls = isMovie ? 'movie' : 'game';
         const tagBg = isMovie ? 'background:rgba(37,99,235,0.9);color:#dbeafe' : 'background:rgba(220,38,38,0.9);color:#ede9fe';
         const img = item.image_url
           ? `<img src="${item.image_url}" alt="">`
           : `<span style="font-size:48px;color:#374151">${isMovie ? '🎬' : '🎮'}</span>`;
 
+        const backTarget = currentUser ? `navigateTo('/recs/${currentUser.id}')` : `navigateTo('/')`;
+
         let html = `<div class="detail-wrap">
           <div style="margin-bottom:16px">
-            <button class="btn" onclick="showPage('recs');loadRecommendations(${currentUser?.id || 0})">← Back</button>
+            <button class="btn" onclick="${backTarget}">← Back</button>
           </div>
           <div class="detail-header">
             <div class="detail-poster">${img}</div>
@@ -436,39 +529,47 @@
                 ${item.avg_rating ? `<span>★ ${item.avg_rating.toFixed(1)}</span>` : ''}
                 ${item.rating_count ? `<span>${item.rating_count} ratings</span>` : ''}
               </div>
-              ${item.description ? `<p class="desc">${esc(item.description)}</p>` : ''}
               ${currentUser ? renderStarRating(externalId, item.user_rating || 0) : ''}
+              ${item.description ? `<p class="desc">${esc(item.description)}</p>` : ''}
             </div>
           </div>`;
 
-        // Similar Games
+        // Similar Games — same lane UI as recommendation rows
         if (item.similar_games && item.similar_games.length > 0) {
-          html += `<div class="similar-section">
-            <h2>Similar Games <span class="sbert-tag game">SBERT Content Similarity</span></h2>
-            <p>Games with similar themes and descriptions</p>
-            <div class="similar-grid">`;
-          for (const s of item.similar_games) {
-            html += renderCard({...s, rating_count: 0, score: s.similarity, external_id: s.external_id});
-          }
-          html += '</div></div>';
+          const gameCards = item.similar_games.map(s => ({...s, rating_count: 0, external_id: s.external_id}));
+          html += `<div class="rec-section">
+            <div class="rec-header">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h2>Similar Games</h2><span class="model-tag">SBERT Content Similarity</span>
+                </div>
+                <div class="subtitle">Games with similar themes and descriptions</div>
+              </div>
+            </div>
+            ${renderLane(gameCards, 'game')}
+          </div>`;
         }
 
-        // Similar Movies
+        // Similar Movies — same lane UI as recommendation rows
         if (item.similar_movies && item.similar_movies.length > 0) {
-          html += `<div class="similar-section">
-            <h2>Similar Movies <span class="sbert-tag movie">SBERT Content Similarity</span></h2>
-            <p>Movies with similar themes — SBERT shared text space enables cross-domain matching</p>
-            <div class="similar-grid">`;
-          for (const s of item.similar_movies) {
-            html += renderCard({...s, rating_count: 0, score: s.similarity, external_id: s.external_id});
-          }
-          html += '</div></div>';
+          const movieCards = item.similar_movies.map(s => ({...s, rating_count: 0, external_id: s.external_id}));
+          html += `<div class="rec-section">
+            <div class="rec-header">
+              <div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <h2>Similar Movies</h2><span class="model-tag">SBERT Content Similarity</span>
+                </div>
+                <div class="subtitle">Movies with similar themes — SBERT shared text space enables cross-domain matching</div>
+              </div>
+            </div>
+            ${renderLane(movieCards, 'movie')}
+          </div>`;
         }
 
         html += '</div>';
         $('#page-detail').html(html);
       }).fail(function() {
-        $('#page-detail').html('<div class="detail-wrap"><p style="color:#ef4444">Item not found</p><button class="btn" onclick="goHome()">Go Home</button></div>');
+        $('#page-detail').html('<div class="detail-wrap"><p style="color:#ef4444">Item not found</p><button class="btn" onclick="navigateTo(\'/\')">Go Home</button></div>');
       });
     }
 
@@ -478,13 +579,15 @@
         const cls = i <= currentRating ? 'active' : '';
         stars += `<span class="star ${cls}" onclick="submitRating('${externalId}', ${i})">★</span>`;
       }
-      return `<div class="star-rating" id="stars-${externalId}">${stars}</div>
-              <div class="rating-msg" id="rating-msg"></div>`;
+      return `<div class="star-rating" id="stars-${externalId}">${stars}</div>`;
     }
+
+    // Track that recs need refreshing after a rating
+    let _recsStale = false;
 
     function submitRating(externalId, rating) {
       if (!currentUser) return;
-      // Update stars immediately
+      // Update stars immediately — no toast message
       $(`#stars-${externalId} .star`).each(function(i) {
         $(this).toggleClass('active', i < rating);
       });
@@ -493,24 +596,7 @@
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({ user_id: currentUser.id, external_id: externalId, rating: rating }),
-        success: function(res) {
-          $('#rating-msg').text(res.message);
-          setTimeout(() => $('#rating-msg').text(''), 3000);
-        },
-        error: function() { $('#rating-msg').text('Failed to save rating').css('color','#ef4444'); }
-      });
-    }
-
-    function triggerRetrain() {
-      $('#btn-refresh').text('Retraining...').prop('disabled', true);
-      $.post(`${API}/api/retrain`, function(res) {
-        $('#btn-refresh').text(`Done (${res.elapsed_s}s)`);
-        setTimeout(() => {
-          $('#btn-refresh').text('Refresh Models').prop('disabled', false);
-          if (currentUser) loadRecommendations(currentUser.id);
-        }, 2000);
-      }).fail(function() {
-        $('#btn-refresh').text('Refresh Models').prop('disabled', false);
+        success: function() { _recsStale = true; }
       });
     }
 
@@ -520,41 +606,47 @@
       return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // Click outside search to close
-    $(document).on('click', function(e) {
-      if (!$(e.target).closest('.search-bar').length) {
-        $('.search-results').addClass('hidden');
+    // ── SEARCH OVERLAY ──────────────────────────────────────
+    $('#search-overlay').on('click', function(e) {
+      if ($(e.target).is('#search-overlay')) toggleSearch();
+    });
+    $(document).on('keydown', function(e) {
+      if (e.key === 'Escape') {
+        $('#search-overlay').removeClass('active');
+      }
+      // Ctrl+K or Cmd+K to open search
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        toggleSearch();
       }
     });
 
-    // ── DRAG-TO-SCROLL ────────────────────────────────────
-    $(document).on('mousedown', '.card-scroll', function(e) {
-      const el = this;
-      el.classList.add('dragging');
-      const startX = e.pageX;
-      const scrollLeft = el.scrollLeft;
-      let moved = false;
+    // ── SCROLL BUTTONS ─────────────────────────────────────
+    function scrollLane(btn, direction) {
+      const scrollEl = $(btn).siblings('.card-scroll')[0];
+      if (scrollEl) {
+        // Scroll by ~3 cards worth (170px * 3)
+        scrollEl.scrollBy({ left: direction * 510, behavior: 'smooth' });
+      }
+    }
 
-      function onMove(e2) {
-        const dx = e2.pageX - startX;
-        if (Math.abs(dx) > 3) moved = true;
-        el.scrollLeft = scrollLeft - dx;
-      }
-      function onUp() {
-        el.classList.remove('dragging');
-        $(document).off('mousemove', onMove).off('mouseup', onUp);
-        // If user dragged, suppress the click on cards
-        if (moved) {
-          $(el).one('click', '.item-card', function(e3) { e3.stopPropagation(); });
-        }
-      }
-      $(document).on('mousemove', onMove).on('mouseup', onUp);
+    // Click on item cards
+    $(document).on('click', '.item-card', function(e) {
+      const id = $(this).data('id');
+      if (id) openItem(id);
     });
 
     // ── INIT ────────────────────────────────────────────────
     $(function() {
-      $('#nav-logo').on('click', goHome);
-      goHome();
+      $('#nav-logo').on('click', function() {
+        if (currentUser) {
+          navigateTo(`/recs/${currentUser.id}`);
+        } else {
+          navigateTo('/');
+        }
+      });
+      $('#btn-search').on('click', toggleSearch);
+      handleRoute();
     });
   </script>
 </body>

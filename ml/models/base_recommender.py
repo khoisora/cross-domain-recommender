@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import abc
 import logging
+
 import numpy as np
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,26 +41,26 @@ class BaseRecommender(abc.ABC):
         self.device = device
         
         # These will be populated after training
-        self.user_embeddings: Optional[np.ndarray] = None
-        self.item_embeddings: Optional[np.ndarray] = None
+        self.user_embeddings: np.ndarray | None = None
+        self.item_embeddings: np.ndarray | None = None
 
     @abc.abstractmethod
     def fit(self, ratings, user_to_idx, item_to_idx, **kwargs) -> dict[str, float]:
         """Train the model on rating data.
-        
+
         Args:
             ratings: DataFrame with user-item ratings
             user_to_idx: Mapping from user IDs to internal indices
             item_to_idx: Mapping from item IDs to internal indices
             **kwargs: Model-specific training parameters
-            
+
         Returns:
             Dictionary with training metrics (e.g., loss, time)
         """
-        pass
+        ...
 
     def predict(self, user_idx: int,
-                item_indices: Optional[np.ndarray] = None) -> np.ndarray:
+                item_indices: np.ndarray | None = None) -> np.ndarray:
         """Predict scores for items for a given user.
         
         Args:

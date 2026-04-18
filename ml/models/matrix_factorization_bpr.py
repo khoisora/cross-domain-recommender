@@ -40,11 +40,12 @@ class MatrixFactorizationBPR(BaseRecommender):
         logger.info("BPR: %d positives (threshold=%s), %d after ID alignment",
                      len(positive), positive_threshold, len(mapped))
 
-        # Pre-compute arrays for vectorized training
+        # Flatten to numpy arrays for fast vectorized mini-batch access
         user_arr = mapped["_uidx"].astype(np.int64).values
         pos_arr = mapped["_iidx"].astype(np.int64).values
 
-        # Build per-user positive item sets for rejection sampling
+        # Build per-user positive item sets — used by rejection sampling to
+        # ensure negatives are truly unobserved (not just low-rated)
         user_items: dict[int, set[int]] = {}
         for u, i in zip(user_arr, pos_arr):
             user_items.setdefault(int(u), set()).add(int(i))
@@ -67,24 +68,29 @@ class MatrixFactorizationBPR(BaseRecommender):
                 b_users = user_arr[idx]
                 b_pos = pos_arr[idx]
 
-                # Sample negatives with rejection (vectorized with fallback)
+                # Sample negatives: start with uniform random, then reject any
+                # that collide with the user's known positives. The inner while
+                # loop rarely iterates because positives are sparse (<1% of items).
                 b_neg = np.random.randint(0, self.num_items, size=len(idx))
                 for j in range(len(idx)):
                     while b_neg[j] in user_items.get(int(b_users[j]), set()):
                         b_neg[j] = np.random.randint(0, self.num_items)
 
-                # Vectorized BPR forward pass
+                # Vectorized BPR forward pass:
+                # score_diff = dot(u, pos) - dot(u, neg) — positive items should
+                # score higher than negatives. BPR loss = -log(sigmoid(diff)).
                 u_emb = user_emb[b_users]       # (B, D)
                 p_emb = item_emb[b_pos]          # (B, D)
                 n_emb = item_emb[b_neg]          # (B, D)
 
                 diff = np.sum(u_emb * (p_emb - n_emb), axis=1)  # (B,)
                 sig = 1.0 / (1.0 + np.exp(-np.clip(diff, -30, 30)))
-                g = (sig - 1.0)[:, np.newaxis]  # (B, 1) — gradient factor
+                g = (sig - 1.0)[:, np.newaxis]  # (B, 1) — gradient scale factor
 
                 epoch_loss -= np.sum(np.log(sig + 1e-10))
 
-                # Vectorized gradient updates via scatter-add
+                # SGD update with L2 regularization. np.add.at handles duplicate
+                # user/item indices in the same batch (scatter-add semantics).
                 u_grad = g * (p_emb - n_emb) + 2 * reg_lambda * u_emb
                 p_grad = g * u_emb + 2 * reg_lambda * p_emb
                 n_grad = -g * u_emb + 2 * reg_lambda * n_emb

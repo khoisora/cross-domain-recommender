@@ -405,6 +405,8 @@ def load_cross_domain_split(
         }
 
     def _unpopular_concentrated(uid_norm: str) -> bool:
+        """True if majority of this user's train items are below median popularity.
+        Used to distinguish users who favor niche/long-tail items from mainstream users."""
         items = user_train_items.get(uid_norm, set())
         if not items:
             return False
@@ -416,16 +418,19 @@ def load_cross_domain_split(
     user_game_count = {normalize_id(uid): int(cnt) for uid, cnt in game_counts_all.items()}
     user_movie_count = {normalize_id(uid): int(cnt) for uid, cnt in movie_counts_all.items()}
 
+    # Subgroup classification for fine-grained metric breakdowns.
+    # Each subgroup captures a different cold-start severity or cross-domain
+    # activity pattern, enabling targeted analysis of where CDR models help.
     subgroups: dict[str, list[int]] = {
-        "super_cold_users": [],
-        "one_shot_target_user": [],
-        "one_shot_unpopular_target_user": [],
-        "high_source_low_target": [],
-        "high_source_unpopular_low_target": [],
-        "movie_heavy": [],
-        "balanced": [],
-        "game_heavy": [],
-        "sparse_target": [],
+        "super_cold_users": [],                   # 0 target train, rich source history
+        "one_shot_target_user": [],               # 1 target train item, rich source
+        "one_shot_unpopular_target_user": [],     # 1 target train item + niche taste
+        "high_source_low_target": [],             # <=3 target, >=15 source (CDR sweet spot)
+        "high_source_unpopular_low_target": [],   # same but niche source taste
+        "movie_heavy": [],                        # >3 target, movies >> games
+        "balanced": [],                           # >3 target, roughly equal activity
+        "game_heavy": [],                         # >3 target, games >> movies
+        "sparse_target": [],                      # <=3 target AND sparse source (<10)
     }
     idx_to_user_map = {v: k for k, v in user_to_idx.items()}
     for uid_idx in eval_user_indices:
@@ -436,6 +441,7 @@ def load_cross_domain_split(
         source_count = mc if target_domain == "game" else gc
         train_size = user_train_size.get(uid_str, 0)
 
+        # Note: users can fall into multiple subgroups (e.g., super_cold + high_source)
         if train_size == 0 and source_count >= 10:
             subgroups["super_cold_users"].append(uid_idx)
         if train_size == 1 and source_count >= 10:
@@ -448,6 +454,7 @@ def load_cross_domain_split(
                 subgroups["high_source_unpopular_low_target"].append(uid_idx)
             else:
                 subgroups["high_source_low_target"].append(uid_idx)
+        # Activity balance buckets — mutually exclusive
         if target_total <= 3 and source_count < 10:
             subgroups["sparse_target"].append(uid_idx)
         elif target_total > 3:

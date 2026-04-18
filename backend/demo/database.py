@@ -12,7 +12,6 @@ import logging
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "demo.db"
 class DemoDB:
     """SQLite database for the demo portal."""
 
-    _instance: Optional["DemoDB"] = None
+    _instance: DemoDB | None = None
 
     def __init__(self, db_path: Path = DB_PATH) -> None:
         self.db_path = db_path
@@ -106,7 +105,17 @@ class DemoDB:
             "avg_rating": 0.0,
         }
 
-    def get_user(self, user_id: int) -> Optional[dict]:
+    def create_user_with_ext_id(self, ext_id: str, name: str) -> dict:
+        """Create a user with a specific external_id (for seeding from ratings store)."""
+        cur = self.conn.cursor()
+        cur.execute("""
+            INSERT INTO users (external_id, name, avatar, taste_summary, is_sample)
+            VALUES (?, ?, '', '', 0)
+        """, (ext_id, name))
+        self.conn.commit()
+        return {"id": cur.lastrowid, "external_id": ext_id, "name": name}
+
+    def get_user(self, user_id: int) -> dict | None:
         """Get user by ID."""
         cur = self.conn.cursor()
         cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
@@ -115,7 +124,7 @@ class DemoDB:
             return None
         return dict(row)
 
-    def get_user_by_external_id(self, ext_id: str) -> Optional[dict]:
+    def get_user_by_external_id(self, ext_id: str) -> dict | None:
         """Get user by external ID."""
         cur = self.conn.cursor()
         cur.execute("SELECT * FROM users WHERE external_id = ?", (ext_id,))
@@ -152,7 +161,7 @@ class DemoDB:
         """, (user_id,))
         return [dict(r) for r in cur.fetchall()]
 
-    def get_user_rating_for_item(self, user_id: int, item_idx: int) -> Optional[float]:
+    def get_user_rating_for_item(self, user_id: int, item_idx: int) -> float | None:
         """Get a specific user's rating for an item."""
         cur = self.conn.cursor()
         cur.execute("SELECT rating FROM ratings WHERE user_id = ? AND item_idx = ?", (user_id, item_idx))

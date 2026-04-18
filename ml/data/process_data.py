@@ -28,7 +28,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Literal, Optional
+from collections.abc import Iterator
 
 import numpy as np
 import pandas as pd
@@ -71,7 +71,7 @@ GAME_MIN_ITEM_INTERACTIONS = 10
 # JSONL parsing
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _parse_review(line: str, domain: str) -> Optional[dict]:
+def _parse_review(line: str, domain: str) -> dict | None:
     """Parse a single JSONL review line.
 
     Handles both Amazon 2023 format (user_id, parent_asin, rating)
@@ -114,7 +114,7 @@ def _parse_review(line: str, domain: str) -> Optional[dict]:
     }
 
 
-def _parse_meta(line: str, domain: str) -> Optional[dict]:
+def _parse_meta(line: str, domain: str) -> dict | None:
     """Parse a single JSONL metadata line."""
     try:
         obj = json.loads(line)
@@ -211,7 +211,7 @@ def _load_metadata(filepath: Path, domain: str) -> pd.DataFrame:
 # Game item filter (only actual games, not accessories/consoles)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _is_actual_game(categories: Optional[str]) -> bool:
+def _is_actual_game(categories: str | None) -> bool:
     """Check if item is an actual game (not accessories, consoles, etc).
 
     The Amazon Video_Games category includes controllers, headsets, gift cards,
@@ -336,7 +336,10 @@ def build_movie_game_dataset(
     logger.info("Deduplicating items...")
     ratings, items = deduplicate_dataset(ratings, items)
 
-    # 3. Convert to implicit: keep only positive interactions (rating >= 4)
+    # 3. Convert to implicit feedback: discard ratings below threshold.
+    # We treat rating >= 4 as "user liked this item" (binary positive signal).
+    # Lower ratings are dropped entirely, not treated as negatives, because
+    # absence of interaction is a stronger negative signal than a 3-star review.
     before_implicit = len(ratings)
     ratings = ratings[ratings["rating"] >= POSITIVE_THRESHOLD].copy()
     logger.info("Implicit conversion (rating >= %d): %d -> %d ratings (%.1f%% kept)",
@@ -373,7 +376,9 @@ def build_movie_game_dataset(
             min_user_interactions, before_total, len(filtered_ratings), len(valid_users),
         )
 
-    # 5. Overlap filter (optional — keep only users with enough ratings in BOTH domains)
+    # 5. Overlap filter (optional) — restrict to users active in BOTH domains.
+    # This ensures CDR models have enough cross-domain signal to learn from.
+    # Without this, many users appear in only one domain and can't benefit from transfer.
     if min_movie_ratings > 0 or min_game_ratings > 0:
         movie_r = filtered_ratings[filtered_ratings["domain"] == "movie"]
         game_r = filtered_ratings[filtered_ratings["domain"] == "game"]

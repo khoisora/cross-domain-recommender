@@ -14,7 +14,6 @@ Rows 1-2 require model retraining (background batch job).
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
@@ -24,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 def _normalise(scores: np.ndarray) -> np.ndarray:
+    """Min-max normalize scores to [0, 1]. Different models produce scores on
+    different scales (dot product vs cosine vs count); normalizing before display
+    makes cross-model comparison meaningful in the frontend."""
     mn, mx = scores.min(), scores.max()
     if mx - mn < 1e-9:
         return np.zeros_like(scores)
@@ -84,7 +86,9 @@ class HybridRecommender:
             })
 
         # ── Row 2: CDR — "Based on Your Movie Taste" ──
-        # Use PTUPCDR if user has game history, EMCDR for cold-start
+        # Model selection: PTUPCDR for warm users (has game history) because it
+        # blends mapped source preference with target MF. EMCDR for cold-start
+        # users because it only needs movie history for the mapping.
         cdr_user_emb = None
         cdr_item_emb = None
         cdr_label = ""
@@ -135,9 +139,14 @@ class HybridRecommender:
             })
 
         # ── Row 4: SBERT Games — "Games Similar in Theme" ──
-        recent_liked = [(s.cd_item_to_idx.get(r["item_id"]), r["rating"])
-                       for r in s.get_user_rated_items(user_ext_id)
-                       if r["rating"] >= 4.0 and r["item_id"] in s.cd_item_to_idx]
+        # Real-time user profile from the LATEST 5 rated items (rating >= 4).
+        # Using only recent items makes SBERT responsive to the user's current
+        # taste rather than diluted by old ratings. Refreshes instantly.
+        all_liked = [(s.cd_item_to_idx.get(r["item_id"]), r["rating"])
+                     for r in s.get_user_rated_items(user_ext_id)
+                     if r["rating"] >= 4.0 and r["item_id"] in s.cd_item_to_idx]
+        # Take the last 5 (most recently added to the ratings list)
+        recent_liked = all_liked[-5:]
         if recent_liked:
             profile = np.zeros(s.content_emb.shape[1], dtype=np.float64)
             n = 0
@@ -164,7 +173,7 @@ class HybridRecommender:
                 rows.append({
                     "key": "sbert_games",
                     "title": "Games Similar in Theme",
-                    "subtitle": "Semantic text similarity — discovers niche games matching your taste",
+                    "subtitle": f"Real-time SBERT profile from your latest {n} rated items",
                     "items": enriched,
                 })
 
@@ -179,7 +188,7 @@ class HybridRecommender:
                     rows.append({
                         "key": "sbert_movies",
                         "title": "Movies You Might Enjoy",
-                        "subtitle": "Content-based movie recommendations from your combined taste profile",
+                        "subtitle": f"Real-time SBERT profile from your latest {n} rated items",
                         "items": enriched,
                     })
 

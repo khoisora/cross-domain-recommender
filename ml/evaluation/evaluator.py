@@ -54,6 +54,7 @@ def evaluate_full_rank(
 
     eval_users = eval_user_override or data.eval_user_indices
     for uid in eval_users:
+        # Skip users with no ground-truth relevant items in the test set
         relevant = data.target_test_relevant.get(uid, set())
         if not relevant:
             continue
@@ -62,9 +63,10 @@ def evaluate_full_rank(
         except Exception:
             continue
 
-        # Mask non-target items → ensures we only rank within the target domain
+        # Two-stage masking ensures fair evaluation:
+        # 1. Non-target items → -inf: only rank within the target domain (e.g., games)
         scores[~target_mask] = -np.inf
-        # Mask train-seen items → prevents trivial hits from re-ranking known items
+        # 2. Train-seen items → -inf: don't credit models for re-ranking known items
         for iid in data.target_train_seen.get(uid, set()):
             if 0 <= iid < num_items:
                 scores[iid] = -np.inf
@@ -122,17 +124,18 @@ def evaluate_sampled(
         relevant = data.target_test_relevant.get(uid, set())
         if not relevant:
             continue
-        # Use one test item as the positive (standard sampled protocol)
+        # Standard sampled protocol: pick ONE positive test item as the target
         test_item = next(iter(relevant))
 
-        # Negative pool: target items minus train-seen minus test item
+        # Negative pool: all target items except train-seen and the test item.
+        # This ensures negatives are plausibly unobserved, not just held-out.
         exclude = data.target_train_seen.get(uid, set()) | {test_item}
         pool = target_items_arr[~np.isin(target_items_arr, list(exclude))]
         if len(pool) < n_negatives:
             continue
 
         neg_items = rng.choice(pool, size=n_negatives, replace=False)
-        # candidates[0] is always the positive item
+        # candidates[0] = the positive; candidates[1:] = negatives
         candidates = np.concatenate([[test_item], neg_items])
 
         try:
@@ -140,7 +143,8 @@ def evaluate_sampled(
         except Exception:
             continue
 
-        # Rank = number of candidates scoring higher than the positive + 1
+        # Rank the positive among all 100 candidates (1 pos + 99 neg).
+        # rank=1 means the model scored the positive highest.
         cand_scores = scores[candidates]
         rank = int((cand_scores > cand_scores[0]).sum()) + 1
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import torch
@@ -37,18 +37,18 @@ class EMCDRWrapper:
         self.embedding_dim = embedding_dim
         self.device = device
         self._model = None
-        self._rb_users: Optional[np.ndarray] = None
-        self._rb_items: Optional[np.ndarray] = None
-        self._valid_items: Optional[np.ndarray] = None
-        self._valid_users: Optional[np.ndarray] = None
-        self.user_embeddings: Optional[np.ndarray] = None
-        self.item_embeddings: Optional[np.ndarray] = None
+        self._rb_users: np.ndarray | None = None
+        self._rb_items: np.ndarray | None = None
+        self._valid_items: np.ndarray | None = None
+        self._valid_users: np.ndarray | None = None
+        self.user_embeddings: np.ndarray | None = None
+        self.item_embeddings: np.ndarray | None = None
 
     def fit(self, ratings, user_to_idx, item_to_idx,
             epochs: int = 20, lr: float = 0.001, reg_lambda: float = 1e-4,
             batch_size: int = 4096, positive_threshold: float = 4.0,
             source_domain: str = "movie", target_domain: str = "game",
-            model_hyperparams: Optional[dict[str, Any]] = None) -> dict[str, float]:
+            model_hyperparams: dict[str, Any] | None = None) -> dict[str, float]:
         t0 = time.time()
         extra: dict[str, Any] = {
             "train_epochs": ["SOURCE:20", "TARGET:20", "OVERLAP:10"],
@@ -84,9 +84,14 @@ class EMCDRWrapper:
         with torch.no_grad():
             src_emb = model.source_user_embedding.weight.cpu()
             tgt_emb = model.target_user_embedding.weight.cpu()
+            # Apply the learned MLP mapping to project ALL source embeddings
+            # into the target space
             mapped = model.mapping(src_emb)
 
-            # [0, overlap_n) → mapping(src), [overlap_n, target_n) → target, [target_n, total) → mapping(src)
+            # RecBole user ID layout:
+            #   [0, overlap_n)      → overlap users: use mapped source embedding
+            #   [overlap_n, target_n) → target-only users: use target MF embedding
+            #   [target_n, ...)      → source-only users: use mapped source embedding
             all_user_emb = mapped.clone()
             all_user_emb[overlap_n:target_n] = tgt_emb[overlap_n:target_n]
             tgt_item_emb = model.target_item_embedding.weight[:target_n].cpu()
@@ -94,6 +99,8 @@ class EMCDRWrapper:
         all_user_np = all_user_emb.detach().numpy()
         tgt_item_np = tgt_item_emb.detach().numpy()
 
+        # Scatter RecBole embeddings into our contiguous index space.
+        # rb_u/rb_i = 0 means PAD (item/user unknown to RecBole), skip those.
         emb_dim = all_user_np.shape[1]
         self.user_embeddings = np.zeros((len(self._rb_users), emb_dim), dtype=np.float32)
         self.item_embeddings = np.zeros((len(self._rb_items), emb_dim), dtype=np.float32)
@@ -102,6 +109,7 @@ class EMCDRWrapper:
             if rb_u != 0:
                 self.user_embeddings[our_idx] = all_user_np[rb_u]
 
+        # Only target-domain items have embeddings (source items aren't scored)
         target_n_int = int(target_n)
         for our_idx, rb_i in enumerate(self._rb_items):
             if rb_i != 0 and rb_i < target_n_int:
@@ -113,15 +121,18 @@ class EMCDRWrapper:
                     self._valid_users.sum(), len(self._rb_users),
                     self._valid_items.sum(), len(self._rb_items))
 
-    def predict(self, user_idx: int, item_indices: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
         if self.user_embeddings is None:
             raise ValueError("Model not trained yet")
+        # Invalid users (unmapped by RecBole) get -inf scores everywhere so
+        # they never contaminate evaluation metrics
         if not self._valid_users[user_idx]:
             n = self.num_items if item_indices is None else len(item_indices)
             return np.full(n, -np.inf, dtype=np.float64)
         user_emb = self.user_embeddings[user_idx]
         items = self.item_embeddings if item_indices is None else self.item_embeddings[item_indices]
         scores = (items @ user_emb).astype(np.float64)
+        # Mask items that RecBole didn't learn embeddings for (zero-vector items)
         valid = self._valid_items if item_indices is None else self._valid_items[item_indices]
         scores[~valid] = -np.inf
         return scores

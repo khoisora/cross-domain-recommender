@@ -31,11 +31,14 @@ def ndcg_at_k(recommended: list[int], relevant: set[int], k: int) -> float:
     """
     if not relevant:
         return 0.0
+    # DCG = sum(1/log2(rank+1)) for each relevant item in the top-K.
+    # Position index i is 0-based so we use log2(i+2) to get log2(rank) with rank starting at 1.
     dcg = sum(
-        1.0 / np.log2(i + 2)  # i+2 because log2(1) = 0, positions are 1-indexed
+        1.0 / np.log2(i + 2)
         for i, item in enumerate(recommended[:k])
         if item in relevant
     )
+    # IDCG = best possible DCG if all relevant items were ranked at the top positions
     idcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(relevant), k)))
     return dcg / idcg if idcg > 0 else 0.0
 

@@ -8,7 +8,6 @@ items that contributed to the recommendation.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
@@ -26,7 +25,7 @@ class GraphService:
     def build_item_graph(
         self,
         item_idx: int,
-        user_ext_id: Optional[str] = None,
+        user_ext_id: str | None = None,
         top_k: int = 9,
     ) -> dict:
         """Build a local explanation graph centered on an item.
@@ -174,7 +173,7 @@ class GraphService:
     def get_item_explanation(
         self,
         item_idx: int,
-        user_ext_id: Optional[str] = None,
+        user_ext_id: str | None = None,
     ) -> dict:
         """Generate a structured explanation for why an item is recommended."""
         s = self.store

@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,8 @@ class FileModelRegistry:
         version: str,
         model_type: str,
         artifact_path: str,
-        metrics: Optional[dict[str, float]] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metrics: dict[str, float] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict:
         """Register a new model version.
 
@@ -66,7 +66,7 @@ class FileModelRegistry:
         logger.info("Registered model version: %s (%s)", version, model_type)
         return record
 
-    def get_version(self, version: str) -> Optional[dict]:
+    def get_version(self, version: str) -> dict | None:
         """Get a version record by version string."""
         entry_path = self.versions_dir / version / "registry_entry.json"
         if not entry_path.exists():
@@ -75,7 +75,7 @@ class FileModelRegistry:
             return json.load(f)
 
     def list_versions(
-        self, model_type: Optional[str] = None, limit: int = 20
+        self, model_type: str | None = None, limit: int = 20
     ) -> list[dict]:
         """List registered versions, newest first."""
         versions = []
@@ -91,7 +91,7 @@ class FileModelRegistry:
                     break
         return versions
 
-    def get_active_version(self, model_type: Optional[str] = None) -> Optional[dict]:
+    def get_active_version(self, model_type: str | None = None) -> dict | None:
         """Get the currently active version."""
         active_file = self.artifacts_dir / "active" / "version.txt"
         if not active_file.exists():
@@ -131,7 +131,7 @@ class FileModelRegistry:
         logger.info("Promoted version %s to active", version)
         return True
 
-    def rollback(self) -> Optional[str]:
+    def rollback(self) -> str | None:
         """Rollback to the previous active version.
 
         Returns:

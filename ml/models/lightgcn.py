@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
@@ -35,17 +35,17 @@ class LightGCN:
         self.num_layers = num_layers
         self.device = device
         self.dropout = dropout
-        self._model: Optional[_LightGCNModel] = None
-        self._edge_index: Optional[torch.Tensor] = None
-        self._cached_all_emb: Optional[torch.Tensor] = None
+        self._model: _LightGCNModel | None = None
+        self._edge_index: torch.Tensor | None = None
+        self._cached_all_emb: torch.Tensor | None = None
 
     def fit(self, ratings: pd.DataFrame, user_to_idx: dict, item_to_idx: dict,
             epochs: int = 100, lr: float = 0.001, reg_lambda: float = 1e-4,
             batch_size: int = 2048, positive_threshold: float = 3.5,
             neg_sampling: str = "popularity", neg_popularity_alpha: float = 0.75,
-            neg_item_indices: Optional[np.ndarray] = None,
+            neg_item_indices: np.ndarray | None = None,
             early_stopping_patience: int = 10,
-            val_metric_fn: Optional[Callable] = None,
+            val_metric_fn: Callable | None = None,
             val_every: int = 5) -> dict[str, float]:
         """Train LightGCN with BPR loss and optional validation-based early stopping."""
         user_to_idx, item_to_idx = normalize_maps(user_to_idx, item_to_idx)
@@ -83,11 +83,15 @@ class LightGCN:
         for u, i in zip(uid_arr.tolist(), iid_arr.tolist()):
             user_pos.setdefault(u, set()).add(i)
 
-        # Popularity-biased negative sampling distribution
+        # Popularity-biased negative sampling distribution.
+        # Items seen more often are sampled more as negatives — this produces
+        # harder negatives than uniform sampling, improving ranking quality.
+        # Alpha < 1 smooths the distribution (0.75 = sublinear popularity).
         pop_t = None
         if neg_sampling == "popularity":
             pop = np.bincount(iid_arr, minlength=self.num_items).astype(np.float64)
             pop = np.maximum(pop, 1.0) ** neg_popularity_alpha
+            # Zero out non-target items so negatives come only from the target domain
             if neg_item_indices is not None:
                 mask = np.zeros(self.num_items, dtype=bool)
                 mask[neg_item_indices] = True
@@ -143,9 +147,13 @@ class LightGCN:
                 pi_emb = all_emb[item_offset + batch_iid]
                 ni_emb = all_emb[item_offset + batch_neg]
 
+                # BPR loss via softplus: log(1 + exp(neg_score - pos_score)).
+                # Equivalent to -log(sigmoid(pos - neg)) but numerically stable.
                 bpr_loss = torch.nn.functional.softplus(
                     (u_emb * ni_emb).sum(-1) - (u_emb * pi_emb).sum(-1)
                 ).mean()
+                # L2 regularization only on embeddings used in this batch
+                # (not all embeddings) to keep gradients sparse
                 unique_nodes = torch.cat([batch_uid, item_offset + batch_iid, item_offset + batch_neg]).unique()
                 reg_loss = reg_lambda * model.embedding.weight[unique_nodes].pow(2).sum() / unique_nodes.size(0)
 
@@ -200,15 +208,18 @@ class LightGCN:
         logger.info("LightGCN trained in %.1fs", time.time() - t0)
         return {"final_loss": avg_loss, "train_time": time.time() - t0}
 
-    def predict(self, user_idx: int, item_indices: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
         if self._model is None:
             return np.zeros(self.num_items if item_indices is None else len(item_indices))
         self._model.eval()
         with torch.no_grad():
+            # Cache the full GCN embedding (users + items) across predict() calls.
+            # Invalidated on each training step via self._cached_all_emb = None.
             if self._cached_all_emb is None:
                 self._cached_all_emb = self._model.get_embedding(self._edge_index)
             all_emb = self._cached_all_emb
             u_emb = all_emb[user_idx]
+            # Item nodes start at offset num_users in the bipartite graph
             scores = (all_emb[self.num_users:] @ u_emb).cpu().numpy()
         return scores[item_indices] if item_indices is not None else scores
 

@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -80,6 +81,9 @@ def build_movie_game_cooc(
     pair_count: dict[str, dict[str, int]] = {}
     n_overlap = 0
 
+    # Count co-occurrences: for each overlap user (has both movie and game
+    # ratings), every (movie, game) pair the user liked gets a count increment.
+    # This is O(users * movies_per_user * games_per_user) but each factor is small.
     for u, ms in movie_by_u.items():
         gs = game_by_u.get(u)
         if not gs:
@@ -98,6 +102,10 @@ def build_movie_game_cooc(
         logger.warning("Co-occurrence: no overlap users with positive movie+game interactions")
         return {}
 
+    # Convert raw counts to association scores. Three modes:
+    #   raw:  log(1+count) — simple, robust, favors popular pairs
+    #   pmi:  log(P(m,g) / P(m)P(g)) — debiased, can be negative for rare pairs
+    #   npmi: pmi / -log(P(m,g)) — normalized to [-1, 1], comparable across scales
     cooc: dict[str, dict[str, float]] = {}
     for m, gs in pair_count.items():
         row: dict[str, float] = {}
@@ -121,6 +129,7 @@ def build_movie_game_cooc(
 
             if score <= 0:
                 continue
+            # Shrinkage dampens scores for low-count pairs to reduce noise
             if shrinkage > 0:
                 score *= c / (c + shrinkage)
             row[g] = score
@@ -159,7 +168,9 @@ def wrap_predict_with_cooc(
     if not cooc or lam == 0.0:
         return base_predict
 
-    # Precompute sparse W[movie_row, item_col] = lam * score
+    # Build sparse transfer matrix W where W[movie_row, game_col] = lam * score.
+    # At inference: bonus = (user's movie indicator vector) @ W → score boost per game.
+    # Using CSR sparse format keeps memory and dot-product cost proportional to nnz.
     movie_keys = sorted(cooc.keys())
     movie_to_r = {m: i for i, m in enumerate(movie_keys)}
     rows, cols, vals = [], [], []

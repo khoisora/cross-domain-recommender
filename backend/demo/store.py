@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -35,7 +34,7 @@ _BLOCK_KEYWORDS = [
 class DemoStore:
     """Singleton in-memory store for all demo artifacts."""
 
-    _instance: Optional["DemoStore"] = None
+    _instance: DemoStore | None = None
 
     def __init__(self) -> None:
         self.loaded = False
@@ -84,21 +83,21 @@ class DemoStore:
         self.lgcn_user: np.ndarray = np.load(DEMO_DIR / "lightgcn_user.npy")
         self.lgcn_item: np.ndarray = np.load(DEMO_DIR / "lightgcn_item.npy")
 
-        self.ncf_user: Optional[np.ndarray] = None
-        self.ncf_item: Optional[np.ndarray] = None
+        self.ncf_user: np.ndarray | None = None
+        self.ncf_item: np.ndarray | None = None
         if (DEMO_DIR / "ncf_user.npy").exists():
             self.ncf_user = np.load(DEMO_DIR / "ncf_user.npy")
             self.ncf_item = np.load(DEMO_DIR / "ncf_item.npy")
 
         # Cross-domain (unified item space)
-        self.emcdr_user: Optional[np.ndarray] = None
-        self.emcdr_item: Optional[np.ndarray] = None
+        self.emcdr_user: np.ndarray | None = None
+        self.emcdr_item: np.ndarray | None = None
         if (DEMO_DIR / "emcdr_user.npy").exists():
             self.emcdr_user = np.load(DEMO_DIR / "emcdr_user.npy")
             self.emcdr_item = np.load(DEMO_DIR / "emcdr_item.npy")
 
-        self.ptupcdr_user: Optional[np.ndarray] = None
-        self.ptupcdr_item: Optional[np.ndarray] = None
+        self.ptupcdr_user: np.ndarray | None = None
+        self.ptupcdr_item: np.ndarray | None = None
         if (DEMO_DIR / "ptupcdr_user.npy").exists():
             self.ptupcdr_user = np.load(DEMO_DIR / "ptupcdr_user.npy")
             self.ptupcdr_item = np.load(DEMO_DIR / "ptupcdr_item.npy")
@@ -109,8 +108,8 @@ class DemoStore:
         self.content_sim_scores: np.ndarray = np.load(DEMO_DIR / "content_sim_scores.npy")
 
         # LightGCN movie-domain (single-domain collaborative on movies)
-        self.lgcn_movie_user: Optional[np.ndarray] = None
-        self.lgcn_movie_item: Optional[np.ndarray] = None
+        self.lgcn_movie_user: np.ndarray | None = None
+        self.lgcn_movie_item: np.ndarray | None = None
         self.movie_item_to_idx: dict[str, int] = {}
         self.movie_idx_to_item: dict[int, str] = {}
         if (DEMO_DIR / "lightgcn_movie_user.npy").exists():
