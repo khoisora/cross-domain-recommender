@@ -7,7 +7,7 @@ Imported by all bench_*.py scripts. Provides:
   - `save_result`: JSON output with `dataset_info` for reproducibility.
   - `verify_no_leakage`, `make_full_rank_val_fn`, and CLI/logging helpers.
 
-Protocol: movie → game cross-domain, per-user leave-last-out, Recall@10 + NDCG@10.
+Protocol: movie → game cross-domain, per-user leave-last-out, full-rank Recall@10 + NDCG@10 + HitRate@10.
 """
 
 from __future__ import annotations

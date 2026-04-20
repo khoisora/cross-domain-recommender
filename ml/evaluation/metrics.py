@@ -48,13 +48,14 @@ def compute_all_metrics(
     relevant: set[int],
     k_values: list[int] | None = None,
 ) -> dict[str, float]:
-    """Compute recall and NDCG for a single user at each K."""
+    """Compute recall, NDCG, and hit rate for a single user at each K."""
     if k_values is None:
         k_values = [10]
     results = {}
     for k in k_values:
         results[f"recall@{k}"] = recall_at_k(recommended, relevant, k)
         results[f"ndcg@{k}"] = ndcg_at_k(recommended, relevant, k)
+        results[f"hit_rate@{k}"] = hit_rate_at_k(recommended, relevant, k)
     return results
 
 

@@ -1,7 +1,8 @@
 """Cross-domain full-rank evaluation.
 
 Score ALL items, mask non-target and train-seen items, rank top-K, compute
-Recall@K and NDCG@K. Reports per-subgroup breakdowns for fine-grained analysis.
+Recall@K, NDCG@K, and HitRate@K. Reports per-subgroup breakdowns for
+fine-grained analysis.
 """
 
 from __future__ import annotations
@@ -67,9 +68,9 @@ def evaluate_full_rank(model_name: str, predict_fn, data) -> dict:
 
     overall = aggregate_metrics(per_user_metrics)
     logger.info(
-        "%s [full-rank] (%d users): Recall@10=%.4f  NDCG@10=%.4f",
+        "%s [full-rank] (%d users): Recall@10=%.4f  NDCG@10=%.4f  HitRate@10=%.4f",
         model_name, len(per_user_metrics),
-        overall.get("recall@10", 0), overall.get("ndcg@10", 0),
+        overall.get("recall@10", 0), overall.get("ndcg@10", 0), overall.get("hit_rate@10", 0),
     )
 
     # Subgroup aggregation
