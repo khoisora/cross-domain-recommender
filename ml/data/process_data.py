@@ -2,23 +2,17 @@
 
 Pipeline:
   1. Parse raw JSONL.gz reviews + metadata for movies and games
-  2. Filter game metadata to actual games (exclude accessories, consoles, etc.)
-  3. Deduplicate items (merge DVD/Blu-ray/digital/platform variants → one canonical item)
-  4. K-core filter: users with >= 10 total interactions (across both domains),
-     movie items >= 20 interactions, game items >= 10 interactions
-  5. Save parquet files + metadata JSON
+  2. Filter game metadata to actual games (exclude accessories, consoles)
+  3. Deduplicate items (merge DVD/Blu-ray/digital/platform variants)
+  4. Convert to implicit: keep ratings >= POSITIVE_THRESHOLD
+  5. Item k-core: movies >= 20, games >= 10 interactions
+  6. Optional user k-core (min_user_interactions, default 10)
+  7. Optional overlap filter (min_movie_ratings, min_game_ratings)
 
-Phase 0 / Lessons 1–2: users >= 10 total interactions, NO overlap-user filter.
-Users active in only one domain are kept. Overlap-user filtering is introduced
-in Lesson 3 cohort variants.
-
-Output files in ml/data/amazon_2023/processed/:
-  - ratings.parquet        — all interactions (movie + game)
-  - movie_ratings.parquet   — movie interactions only
-  - game_ratings.parquet    — game interactions only
-  - movies.parquet          — movie item metadata
-  - games.parquet           — game item metadata
-  - dataset_metadata.json   — processing parameters and statistics
+Output files (written to --output-dir):
+  - ratings.parquet          — all interactions (movie + game)
+  - movies.parquet / games.parquet — item metadata per domain
+  - dataset_metadata.json     — processing parameters and statistics
 """
 
 from __future__ import annotations
@@ -30,7 +24,6 @@ from datetime import datetime
 from pathlib import Path
 from collections.abc import Iterator
 
-import numpy as np
 import pandas as pd
 
 try:
@@ -40,7 +33,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Paths
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 AMAZON_DATASET_PATH = PROJECT_ROOT / "ml" / "data" / "amazon_2023"
@@ -56,42 +48,28 @@ META_FILES = {
     "games": RAW_DATA_DIR / "games_meta_2023.jsonl.gz",
 }
 
-SEED = 42
-POSITIVE_THRESHOLD = 4  # rating >= 4 counts as a positive interaction
-
-# K-core thresholds
-# Users: >= 10 total interactions across both domains (not per-domain)
+POSITIVE_THRESHOLD = 4
 MIN_USER_INTERACTIONS = 10
-# Item thresholds per domain (movies have more data, so higher threshold)
 MOVIE_MIN_ITEM_INTERACTIONS = 20
 GAME_MIN_ITEM_INTERACTIONS = 10
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# JSONL parsing
-# ═══════════════════════════════════════════════════════════════════════════
+# ── JSONL parsing ────────────────────────────────────────────────────────────
 
 def _parse_review(line: str, domain: str) -> dict | None:
-    """Parse a single JSONL review line.
-
-    Handles both Amazon 2023 format (user_id, parent_asin, rating)
-    and older SNAP format (reviewerID, asin, overall).
-    """
+    """Parse a JSONL review. Handles Amazon 2023 and older SNAP formats."""
     try:
         obj = json.loads(line)
     except json.JSONDecodeError:
         return None
 
-    # Amazon 2023 uses "user_id"/"parent_asin"/"rating";
-    # older SNAP format uses "reviewerID"/"asin"/"overall"
     user_id = obj.get("user_id") or obj.get("reviewerID")
     asin = obj.get("parent_asin") or obj.get("asin")
     rating = obj.get("rating") if obj.get("rating") is not None else obj.get("overall")
     if not user_id or not asin or rating is None:
         return None
 
-    # Parse timestamp — Amazon 2023 uses millisecond epoch (>1e12),
-    # SNAP uses second epoch. Both formats handled here.
+    # Amazon 2023 uses ms epoch (>1e12); SNAP uses seconds.
     ts_raw = obj.get("timestamp") or obj.get("unixReviewTime")
     ts = None
     if ts_raw:
@@ -115,7 +93,7 @@ def _parse_review(line: str, domain: str) -> dict | None:
 
 
 def _parse_meta(line: str, domain: str) -> dict | None:
-    """Parse a single JSONL metadata line."""
+    """Parse a JSONL metadata line."""
     try:
         obj = json.loads(line)
     except json.JSONDecodeError:
@@ -126,14 +104,12 @@ def _parse_meta(line: str, domain: str) -> dict | None:
     if not asin or not title:
         return None
 
-    # Description
     desc = obj.get("description")
     description = " ".join(str(d) for d in desc)[:2000] if isinstance(desc, list) else (str(desc)[:2000] if desc else None)
 
-    # Categories
     cats = obj.get("categories") or obj.get("category")
     if isinstance(cats, list):
-        flat = []
+        flat: list[str] = []
         for c in cats:
             flat.extend(c) if isinstance(c, list) else flat.append(str(c))
         categories = ", ".join(flat)
@@ -142,14 +118,9 @@ def _parse_meta(line: str, domain: str) -> dict | None:
     else:
         categories = None
 
-    # Main category
-    main_category = obj.get("main_category")
-
-    # Features
     feat = obj.get("features") or obj.get("feature")
     features = ", ".join(str(f) for f in feat)[:1000] if isinstance(feat, list) else (str(feat)[:1000] if feat else None)
 
-    # Image URL
     images = obj.get("images") or obj.get("imageURL") or obj.get("imUrl")
     image_url = None
     if isinstance(images, list) and images:
@@ -165,14 +136,13 @@ def _parse_meta(line: str, domain: str) -> dict | None:
         "description": description,
         "categories": categories,
         "features": features,
-        "main_category": str(main_category) if main_category else None,
+        "main_category": str(obj.get("main_category")) if obj.get("main_category") else None,
         "price": str(obj.get("price", "")) if obj.get("price") else None,
         "image_url": str(image_url)[:1024] if image_url else None,
     }
 
 
 def _iter_jsonl(filepath: Path, domain: str, parser) -> Iterator[dict]:
-    """Iterate over a JSONL(.gz) file, yielding parsed records."""
     opener = gzip.open if filepath.suffix == ".gz" else open
     count = errors = 0
     with opener(filepath, "rt", encoding="utf-8") as f:
@@ -191,107 +161,35 @@ def _iter_jsonl(filepath: Path, domain: str, parser) -> Iterator[dict]:
     logger.info("Finished %s: %d records, %d errors", filepath.name, count, errors)
 
 
-def _load_reviews(filepath: Path, domain: str) -> pd.DataFrame:
-    """Load reviews from JSONL to DataFrame."""
-    records = list(_iter_jsonl(filepath, domain, _parse_review))
-    df = pd.DataFrame(records)
-    logger.info("Loaded %d %s reviews", len(df), domain)
+def _load(filepath: Path, domain: str, parser) -> pd.DataFrame:
+    df = pd.DataFrame(list(_iter_jsonl(filepath, domain, parser)))
+    logger.info("Loaded %d %s records from %s", len(df), domain, filepath.name)
     return df
 
-
-def _load_metadata(filepath: Path, domain: str) -> pd.DataFrame:
-    """Load item metadata from JSONL to DataFrame."""
-    records = list(_iter_jsonl(filepath, domain, _parse_meta))
-    df = pd.DataFrame(records)
-    logger.info("Loaded %d %s metadata records", len(df), domain)
-    return df
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Game item filter (only actual games, not accessories/consoles)
-# ═══════════════════════════════════════════════════════════════════════════
 
 def _is_actual_game(categories: str | None) -> bool:
-    """Check if item is an actual game (not accessories, consoles, etc).
-
-    The Amazon Video_Games category includes controllers, headsets, gift cards,
-    and console hardware. We keep only items with "Games" as a standalone
-    category segment (e.g. "Video Games, PlayStation 4, Games" → True,
-    "Video Games, Accessories, Controllers" → False).
-    """
+    """True if "Games" appears as a standalone category segment (excludes
+    accessories, controllers, consoles)."""
     if not categories:
         return False
-    segments = [str(s).strip() for s in str(categories).split(",")]
-    return "Games" in segments
+    return "Games" in [s.strip() for s in str(categories).split(",")]
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# K-core filtering
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _kcore_filter(
-    ratings: pd.DataFrame,
-    domain: str,
-    min_user: int,
-    min_item: int,
-) -> pd.DataFrame:
-    """Single-pass k-core: keep users with >= min_user and items with >= min_item interactions.
-
-    K-core filtering removes sparse users and items that don't have enough
-    interactions for meaningful evaluation. Single-pass (user filter → item filter)
-    is sufficient here because we apply overlap-user filtering afterward.
-    """
-    before = len(ratings)
-    user_counts = ratings["user_id"].value_counts()
-    ratings = ratings[ratings["user_id"].isin(user_counts[user_counts >= min_user].index)]
-    item_counts = ratings["item_id"].value_counts()
-    ratings = ratings[ratings["item_id"].isin(item_counts[item_counts >= min_item].index)]
-    logger.info(
-        "%s k-core (u>=%d, i>=%d): %d -> %d ratings (%.1f%% kept)",
-        domain, min_user, min_item, before, len(ratings), 100 * len(ratings) / before if before else 0,
-    )
-    return ratings
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Main pipeline
-# ═══════════════════════════════════════════════════════════════════════════
+# ── Main pipeline ────────────────────────────────────────────────────────────
 
 def build_movie_game_dataset(
     force_reprocess: bool = False,
     min_user_interactions: int = MIN_USER_INTERACTIONS,
-    sample_users: int | None = None,
     min_movie_ratings: int = 0,
     min_game_ratings: int = 0,
-    max_game_ratings: int = 0,
-    genre_filter: bool = False,
-    overlap_item_filter: bool = False,
-    movie_popularity_min: int = 0,
     output_dir: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """Build the movie_game processed dataset.
-
-    Pipeline steps:
-      1. Load raw JSONL reviews + metadata for both domains
-      2. Filter game items to actual games (exclude accessories, consoles)
-      3. Deduplicate items (merge format/platform variants)
-      4. Convert to implicit: keep only ratings >= 4
-      5. Item k-core: movies >= 20, games >= 10 interactions
-      6. Optional user k-core (min_user_interactions, default 10; set 0 to skip)
-      6b. Optional overlap filter (min_movie_ratings > 0 AND min_game_ratings > 0)
-      7. Optional random user sampling (sample_users)
-      8. Save parquet files + metadata JSON
-
-    Caches results: skips processing if output parquets already exist.
-
-    Returns (ratings_df, items_df, metadata_dict).
-    """
+    """Build the movie_game processed dataset. Cached via output parquets."""
     out_dir = output_dir or OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     ratings_path = out_dir / "ratings.parquet"
     metadata_path = out_dir / "dataset_metadata.json"
 
-    # Check for existing processed data
     if not force_reprocess and ratings_path.exists() and metadata_path.exists():
         logger.info("Loading existing processed dataset from %s", out_dir)
         ratings = pd.read_parquet(ratings_path)
@@ -300,225 +198,123 @@ def build_movie_game_dataset(
         items = pd.concat([movies, games], ignore_index=True)
         with open(metadata_path) as f:
             metadata = json.load(f)
-        logger.info(
-            "Loaded: %d ratings, %d users, %d items",
-            len(ratings), ratings["user_id"].nunique(), ratings["item_id"].nunique(),
-        )
+        logger.info("Loaded: %d ratings, %d users, %d items",
+                    len(ratings), ratings["user_id"].nunique(), ratings["item_id"].nunique())
         return ratings, items, metadata
 
-    # Verify raw files exist
-    for name, path in {**REVIEW_FILES, **META_FILES}.items():
+    for path in {**REVIEW_FILES, **META_FILES}.values():
         if not path.exists():
             raise FileNotFoundError(f"Missing raw file: {path}")
 
-    # 1. Load raw reviews + metadata
-    movie_reviews = _load_reviews(REVIEW_FILES["movies"], "movie")
-    game_reviews = _load_reviews(REVIEW_FILES["games"], "game")
-    ratings = pd.concat([movie_reviews, game_reviews], ignore_index=True)
-    ratings = ratings.drop_duplicates(subset=["user_id", "item_id"], keep="last")
+    # 1. Load reviews + metadata
+    ratings = pd.concat(
+        [_load(REVIEW_FILES["movies"], "movie", _parse_review),
+         _load(REVIEW_FILES["games"], "game", _parse_review)],
+        ignore_index=True,
+    ).drop_duplicates(subset=["user_id", "item_id"], keep="last")
 
-    movie_meta = _load_metadata(META_FILES["movies"], "movie")
-    game_meta = _load_metadata(META_FILES["games"], "game")
+    movie_meta = _load(META_FILES["movies"], "movie", _parse_meta)
+    game_meta = _load(META_FILES["games"], "game", _parse_meta)
 
-    # Filter games to actual games (not accessories/consoles)
+    # 2. Game item filter — drop accessories, consoles, gift cards.
     before = len(game_meta)
     game_meta = game_meta[game_meta["categories"].apply(_is_actual_game)].copy()
-    logger.info("Game item filter: %d -> %d (removed %d non-game items)", before, len(game_meta), before - len(game_meta))
+    logger.info("Game item filter: %d -> %d (removed %d non-game items)",
+                before, len(game_meta), before - len(game_meta))
 
-    items = pd.concat([movie_meta, game_meta], ignore_index=True)
-    items = items.drop_duplicates(subset=["external_id"], keep="last")
+    items = pd.concat([movie_meta, game_meta], ignore_index=True) \
+        .drop_duplicates(subset=["external_id"], keep="last")
+    ratings = ratings[ratings["item_id"].isin(set(items["external_id"]))].copy()
 
-    # Keep only ratings for items with metadata
-    valid_items = set(items["external_id"])
-    ratings = ratings[ratings["item_id"].isin(valid_items)].copy()
-
-    # 2. Deduplicate (merge DVD/Blu-ray/digital variants)
+    # 3. Deduplicate format/platform variants
     logger.info("Deduplicating items...")
     ratings, items = deduplicate_dataset(ratings, items)
 
-    # 3. Convert to implicit feedback: discard ratings below threshold.
-    # We treat rating >= 4 as "user liked this item" (binary positive signal).
-    # Lower ratings are dropped entirely, not treated as negatives, because
-    # absence of interaction is a stronger negative signal than a 3-star review.
+    # 4. Implicit feedback: rating >= 4 = positive. Lower ratings dropped entirely
+    # (absence is a stronger negative signal than a 3-star review).
     before_implicit = len(ratings)
     ratings = ratings[ratings["rating"] >= POSITIVE_THRESHOLD].copy()
-    logger.info("Implicit conversion (rating >= %d): %d -> %d ratings (%.1f%% kept)",
-                POSITIVE_THRESHOLD, before_implicit, len(ratings),
-                100 * len(ratings) / before_implicit if before_implicit else 0)
+    logger.info("Implicit conversion (rating >= %d): %d -> %d ratings",
+                POSITIVE_THRESHOLD, before_implicit, len(ratings))
 
-    # 4. Item k-core filtering per domain (remove items with too few interactions)
-    movie_ratings = ratings[ratings["domain"] == "movie"].copy()
-    game_ratings = ratings[ratings["domain"] == "game"].copy()
+    # 5. Per-domain item k-core
+    def _item_kcore(df: pd.DataFrame, min_count: int, name: str) -> pd.DataFrame:
+        counts = df["item_id"].value_counts()
+        keep = set(counts[counts >= min_count].index)
+        out = df[df["item_id"].isin(keep)].copy()
+        logger.info("%s item k-core (>=%d): %d -> %d ratings", name, min_count, len(df), len(out))
+        return out
 
-    movie_item_counts = movie_ratings["item_id"].value_counts()
-    valid_movie_items = set(movie_item_counts[movie_item_counts >= MOVIE_MIN_ITEM_INTERACTIONS].index)
-    before_m = len(movie_ratings)
-    movie_ratings = movie_ratings[movie_ratings["item_id"].isin(valid_movie_items)].copy()
-    logger.info("Movie item k-core (>=%d): %d -> %d ratings", MOVIE_MIN_ITEM_INTERACTIONS, before_m, len(movie_ratings))
+    filtered = pd.concat([
+        _item_kcore(ratings[ratings["domain"] == "movie"], MOVIE_MIN_ITEM_INTERACTIONS, "Movie"),
+        _item_kcore(ratings[ratings["domain"] == "game"], GAME_MIN_ITEM_INTERACTIONS, "Game"),
+    ], ignore_index=True)
 
-    game_item_counts = game_ratings["item_id"].value_counts()
-    valid_game_items = set(game_item_counts[game_item_counts >= GAME_MIN_ITEM_INTERACTIONS].index)
-    before_g = len(game_ratings)
-    game_ratings = game_ratings[game_ratings["item_id"].isin(valid_game_items)].copy()
-    logger.info("Game item k-core (>=%d): %d -> %d ratings", GAME_MIN_ITEM_INTERACTIONS, before_g, len(game_ratings))
-
-    # Recombine after item filtering
-    filtered_ratings = pd.concat([movie_ratings, game_ratings], ignore_index=True)
-
-    # 4. User k-core (optional — set min_user_interactions=0 to skip)
+    # 6. User k-core (across both domains)
     if min_user_interactions > 0:
-        before_total = len(filtered_ratings)
-        user_counts = filtered_ratings["user_id"].value_counts()
-        valid_users = set(user_counts[user_counts >= min_user_interactions].index)
-        filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(valid_users)].copy()
-        logger.info(
-            "User k-core (>=%d total): %d -> %d ratings (%d users kept)",
-            min_user_interactions, before_total, len(filtered_ratings), len(valid_users),
-        )
+        counts = filtered["user_id"].value_counts()
+        keep = set(counts[counts >= min_user_interactions].index)
+        before = len(filtered)
+        filtered = filtered[filtered["user_id"].isin(keep)].copy()
+        logger.info("User k-core (>=%d): %d -> %d ratings (%d users)",
+                    min_user_interactions, before, len(filtered), len(keep))
 
-    # 5. Overlap filter (optional) — restrict to users active in BOTH domains.
-    # This ensures CDR models have enough cross-domain signal to learn from.
-    # Without this, many users appear in only one domain and can't benefit from transfer.
+    # 7. Overlap filter — users with enough interactions in BOTH domains.
+    # Ensures CDR models have cross-domain signal to learn from.
     if min_movie_ratings > 0 or min_game_ratings > 0:
-        movie_r = filtered_ratings[filtered_ratings["domain"] == "movie"]
-        game_r = filtered_ratings[filtered_ratings["domain"] == "game"]
-        movie_per_user = movie_r.groupby("user_id").size()
-        game_per_user = game_r.groupby("user_id").size()
-        valid_movie_users = set(movie_per_user[movie_per_user >= min_movie_ratings].index)
-        valid_game_users = set(game_per_user[game_per_user >= min_game_ratings].index)
-        if max_game_ratings > 0:
-            capped_game_users = set(game_per_user[game_per_user <= max_game_ratings].index)
-            valid_game_users &= capped_game_users
-        overlap_valid = valid_movie_users & valid_game_users
-        before_overlap = filtered_ratings["user_id"].nunique()
-        filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(overlap_valid)].copy()
-        filter_desc = f"movies>={min_movie_ratings}, games>={min_game_ratings}"
-        if max_game_ratings > 0:
-            filter_desc += f", games<={max_game_ratings}"
-        logger.info(
-            "Overlap filter (%s): %d -> %d users",
-            filter_desc, before_overlap, filtered_ratings["user_id"].nunique(),
-        )
+        movie_per_user = filtered[filtered["domain"] == "movie"].groupby("user_id").size()
+        game_per_user = filtered[filtered["domain"] == "game"].groupby("user_id").size()
+        overlap = (set(movie_per_user[movie_per_user >= min_movie_ratings].index) &
+                   set(game_per_user[game_per_user >= min_game_ratings].index))
+        before = filtered["user_id"].nunique()
+        filtered = filtered[filtered["user_id"].isin(overlap)].copy()
+        logger.info("Overlap filter (movies>=%d, games>=%d): %d -> %d users",
+                    min_movie_ratings, min_game_ratings, before, filtered["user_id"].nunique())
 
-    # 5b. Catalog sharpening filters (Lesson 5 — optional)
-
-    # Genre filter: remove non-transferable movie items (fitness DVDs, opera, classical)
-    if genre_filter:
-        _NONTRANSFERABLE_KEYWORDS = [
-            "exercise", "workout", "fitness", "aerobics", "yoga", "pilates",
-            "dance instruction", "weight loss", "opera", "classical music",
-        ]
-        _NONTRANSFERABLE_CATEGORIES = {"Sports & Outdoors"}
-        movie_items = items[items["domain"] == "movie"]
-        cats_lower = movie_items["categories"].fillna("").str.lower()
-        main_cat = movie_items["main_category"].fillna("")
-        is_bad = main_cat.isin(_NONTRANSFERABLE_CATEGORIES) | \
-            cats_lower.apply(lambda c: any(kw in c for kw in _NONTRANSFERABLE_KEYWORDS))
-        bad_ids = set(movie_items[is_bad]["external_id"])
-        before_genre = len(filtered_ratings)
-        filtered_ratings = filtered_ratings[~filtered_ratings["item_id"].isin(bad_ids)].copy()
-        logger.info("Genre filter: removed %d movie items, %d -> %d ratings",
-                    len(bad_ids), before_genre, len(filtered_ratings))
-
-    # Overlap-user item filter: drop items never rated by any overlap user
-    if overlap_item_filter:
-        mr = filtered_ratings[filtered_ratings["domain"] == "movie"]
-        gr = filtered_ratings[filtered_ratings["domain"] == "game"]
-        ov_users = set(mr["user_id"]) & set(gr["user_id"])
-        ov_movie_items = set(mr[mr["user_id"].isin(ov_users)]["item_id"])
-        ov_game_items = set(gr[gr["user_id"].isin(ov_users)]["item_id"])
-        ov_items = ov_movie_items | ov_game_items
-        before_ov = filtered_ratings["item_id"].nunique()
-        filtered_ratings = filtered_ratings[filtered_ratings["item_id"].isin(ov_items)].copy()
-        logger.info("Overlap-user item filter: %d -> %d items",
-                    before_ov, filtered_ratings["item_id"].nunique())
-
-    # Movie popularity filter: drop movies with < N ratings
-    if movie_popularity_min > 0:
-        mr = filtered_ratings[filtered_ratings["domain"] == "movie"]
-        movie_counts = mr["item_id"].value_counts()
-        popular_movies = set(movie_counts[movie_counts >= movie_popularity_min].index)
-        game_items = set(filtered_ratings[filtered_ratings["domain"] == "game"]["item_id"])
-        keep_items = popular_movies | game_items
-        before_pop = filtered_ratings["item_id"].nunique()
-        filtered_ratings = filtered_ratings[filtered_ratings["item_id"].isin(keep_items)].copy()
-        logger.info("Movie popularity filter (>=%d): %d -> %d items",
-                    movie_popularity_min, before_pop, filtered_ratings["item_id"].nunique())
-
-    # 6. Random user sampling (optional)
-    if sample_users is not None:
-        all_users = sorted(filtered_ratings["user_id"].unique())
-        rng = np.random.RandomState(SEED)
-        sampled = set(rng.choice(all_users, min(sample_users, len(all_users)), replace=False))
-        before_sample = len(all_users)
-        filtered_ratings = filtered_ratings[filtered_ratings["user_id"].isin(sampled)].copy()
-        logger.info("User sampling: %d -> %d users", before_sample, filtered_ratings["user_id"].nunique())
-
-    # Sync items — remove items with no remaining ratings
-    valid_item_ids = set(filtered_ratings["item_id"])
-    items = items[items["external_id"].isin(valid_item_ids)].copy()
-
-    # Split back into per-domain views for saving
-    movie_ratings = filtered_ratings[filtered_ratings["domain"] == "movie"].copy()
-    game_ratings = filtered_ratings[filtered_ratings["domain"] == "game"].copy()
+    # Sync items with remaining ratings
+    items = items[items["external_id"].isin(set(filtered["item_id"]))].copy()
 
     # Stats
-    n_users = filtered_ratings["user_id"].nunique()
-    n_items = filtered_ratings["item_id"].nunique()
-    n_ratings = len(filtered_ratings)
-    n_movies = len(movie_ratings)
-    n_games = len(game_ratings)
-
+    movie_ratings = filtered[filtered["domain"] == "movie"]
+    game_ratings = filtered[filtered["domain"] == "game"]
     movie_users = set(movie_ratings["user_id"])
     game_users = set(game_ratings["user_id"])
     overlap_users = movie_users & game_users
+    n_users = filtered["user_id"].nunique()
     overlap_pct = round(100 * len(overlap_users) / n_users, 1) if n_users else 0
 
-    logger.info("Final dataset: %d users, %d items, %d ratings (%.1f%% overlap)", n_users, n_items, n_ratings, overlap_pct)
-    logger.info("  movie: %d ratings, %d items, %d users", n_movies, movie_ratings["item_id"].nunique(), len(movie_users))
-    logger.info("  game:  %d ratings, %d items, %d users", n_games, game_ratings["item_id"].nunique(), len(game_users))
-    logger.info("  overlap users: %d (%.1f%%)", len(overlap_users), overlap_pct)
+    logger.info("Final: %d users, %d items, %d ratings (%.1f%% overlap)",
+                n_users, filtered["item_id"].nunique(), len(filtered), overlap_pct)
+    logger.info("  movie: %d ratings, %d items, %d users",
+                len(movie_ratings), movie_ratings["item_id"].nunique(), len(movie_users))
+    logger.info("  game:  %d ratings, %d items, %d users",
+                len(game_ratings), game_ratings["item_id"].nunique(), len(game_users))
 
-    # 7. Save parquet files
-    movies_df = items[items["domain"] == "movie"].copy()
-    games_df = items[items["domain"] == "game"].copy()
-
-    filtered_ratings.to_parquet(ratings_path, compression="snappy")
-    movie_ratings.to_parquet(out_dir / "movie_ratings.parquet", compression="snappy")
-    game_ratings.to_parquet(out_dir / "game_ratings.parquet", compression="snappy")
+    # Save
+    movies_df = items[items["domain"] == "movie"]
+    games_df = items[items["domain"] == "game"]
+    filtered.to_parquet(ratings_path, compression="snappy")
     movies_df.to_parquet(out_dir / "movies.parquet", compression="snappy")
     games_df.to_parquet(out_dir / "games.parquet", compression="snappy")
-    filtered_ratings.to_parquet(out_dir / "cross_domain_ratings.parquet", compression="snappy")
 
-    cohort_parts = []
-    if min_user_interactions > 0:
-        cohort_parts.append(f"users >= {min_user_interactions} total interactions")
-    else:
-        cohort_parts.append("no user k-core filter")
+    cohort = f"users >= {min_user_interactions} total interactions" if min_user_interactions > 0 else "no user k-core"
     if min_movie_ratings > 0 or min_game_ratings > 0:
-        overlap_desc = f"overlap users (movies >= {min_movie_ratings}, games >= {min_game_ratings}"
-        if max_game_ratings > 0:
-            overlap_desc += f", games <= {max_game_ratings}"
-        overlap_desc += ")"
-        cohort_parts.append(overlap_desc)
-    if sample_users:
-        cohort_parts.append(f"sampled to ~{sample_users // 1000}K users")
-    cohort_filter = ", ".join(cohort_parts)
+        cohort += f", overlap users (movies >= {min_movie_ratings}, games >= {min_game_ratings})"
 
     metadata = {
         "processing_date": datetime.now().isoformat(),
         "pair": "movie_game",
-        "cohort_filter": cohort_filter,
+        "cohort_filter": cohort,
         "total_users": n_users,
-        "total_items": n_items,
-        "total_ratings": n_ratings,
-        "n_movie_ratings": n_movies,
-        "n_game_ratings": n_games,
+        "total_items": filtered["item_id"].nunique(),
+        "total_ratings": len(filtered),
+        "n_movie_ratings": len(movie_ratings),
+        "n_game_ratings": len(game_ratings),
         "n_movie_items": int(movies_df["external_id"].nunique()),
         "n_game_items": int(games_df["external_id"].nunique()),
         "n_movie_users": len(movie_users),
         "n_game_users": len(game_users),
-        "overlap_users": int(len(overlap_users)),
+        "overlap_users": len(overlap_users),
         "overlap_pct": overlap_pct,
         "movie_only_users": len(movie_users - game_users),
         "game_only_users": len(game_users - movie_users),
@@ -529,9 +325,8 @@ def build_movie_game_dataset(
 
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
-
     logger.info("Saved processed dataset to %s", out_dir)
-    return filtered_ratings, items, metadata
+    return filtered, items, metadata
 
 
 if __name__ == "__main__":
@@ -540,37 +335,18 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
     parser = argparse.ArgumentParser(description="Build processed movie_game parquet dataset.")
-    parser.add_argument("--force-reprocess", action="store_true", help="Force re-processing even if parquets exist")
-    parser.add_argument("--min-user-interactions", type=int, default=MIN_USER_INTERACTIONS,
-                        help="Min total interactions per user (0 to skip)")
-    parser.add_argument("--sample-users", type=int, default=None,
-                        help="Subsample to N users preserving overlap ratio")
-    parser.add_argument("--min-movie-ratings", type=int, default=0,
-                        help="Min movie ratings per user for overlap filter (0 to skip)")
-    parser.add_argument("--min-game-ratings", type=int, default=0,
-                        help="Min game ratings per user for overlap filter (0 to skip)")
-    parser.add_argument("--max-game-ratings", type=int, default=0,
-                        help="Max game ratings per user (0 = no cap)")
-    parser.add_argument("--genre-filter", action="store_true",
-                        help="Remove non-transferable movie items (fitness/opera/classical)")
-    parser.add_argument("--overlap-item-filter", action="store_true",
-                        help="Drop items never rated by any overlap user")
-    parser.add_argument("--movie-popularity-min", type=int, default=0,
-                        help="Drop movies with fewer than N ratings (0 to skip)")
-    parser.add_argument("--output-dir", type=str, default=None,
-                        help="Custom output directory (default: processed/)")
+    parser.add_argument("--force-reprocess", action="store_true")
+    parser.add_argument("--min-user-interactions", type=int, default=MIN_USER_INTERACTIONS)
+    parser.add_argument("--min-movie-ratings", type=int, default=0)
+    parser.add_argument("--min-game-ratings", type=int, default=0)
+    parser.add_argument("--output-dir", type=str, default=None)
     args = parser.parse_args()
 
-    ratings, items, metadata = build_movie_game_dataset(
+    _, _, metadata = build_movie_game_dataset(
         force_reprocess=args.force_reprocess,
         min_user_interactions=args.min_user_interactions,
-        sample_users=args.sample_users,
         min_movie_ratings=args.min_movie_ratings,
         min_game_ratings=args.min_game_ratings,
-        max_game_ratings=args.max_game_ratings,
-        genre_filter=args.genre_filter,
-        overlap_item_filter=args.overlap_item_filter,
-        movie_popularity_min=args.movie_popularity_min,
         output_dir=Path(args.output_dir) if args.output_dir else None,
     )
     logger.info("Done. %d users, %d ratings", metadata["total_users"], metadata["total_ratings"])
