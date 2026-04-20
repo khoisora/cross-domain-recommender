@@ -64,19 +64,16 @@ class CMF:
                     train_time, self._valid_items.sum(), len(self._rb_items))
         return {"train_time": train_time}
 
-    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
+    def predict(self, user_idx: int) -> np.ndarray:
         if self.user_embeddings is None:
             raise ValueError("Model not trained yet")
         if not self._valid_users[user_idx]:
-            n = self.num_items if item_indices is None else len(item_indices)
-            return np.full(n, -np.inf, dtype=np.float64)
+            return np.full(self.num_items, -np.inf, dtype=np.float64)
         user_emb = self.user_embeddings[user_idx]
-        items = self.item_embeddings if item_indices is None else self.item_embeddings[item_indices]
         # CMF uses sigmoid(dot product) to bound scores in (0, 1), matching the
         # BPR training objective where positive pairs should score close to 1.
-        scores = 1.0 / (1.0 + np.exp(-(items @ user_emb).astype(np.float64)))
-        valid = self._valid_items if item_indices is None else self._valid_items[item_indices]
-        scores[~valid] = -np.inf
+        scores = 1.0 / (1.0 + np.exp(-(self.item_embeddings @ user_emb).astype(np.float64)))
+        scores[~self._valid_items] = -np.inf
         return scores
 
     def get_user_embeddings(self) -> np.ndarray:

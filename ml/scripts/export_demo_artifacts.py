@@ -22,7 +22,7 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from ml.scripts.benchmarks.benchmark_common import (
-    load_cross_domain_split, configure_benchmark, POSITIVE_THRESHOLD,
+    load_cross_domain_split, POSITIVE_THRESHOLD, DATA_DIR,
 )
 from ml.models.lightgcn import LightGCN
 from ml.models.ncf import NCF
@@ -39,7 +39,6 @@ OUT = Path(_root) / "artifacts" / "demo"
 OUT.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = Path(_root) / "ml" / "data" / "amazon_2023" / "movies_games.db"
-DOMAIN_PAIR = "movie_game_overlap"
 
 
 def save_npy(name: str, arr: np.ndarray) -> None:
@@ -180,10 +179,8 @@ def export_ptupcdr(data_cd) -> None:
 
 def export_sbert(data_cd) -> None:
     """Encode items with SBERT and export content embeddings."""
-    from ml.scripts.benchmarks.benchmark_common import _DOMAIN_PAIR_PATHS
-    data_dir = _DOMAIN_PAIR_PATHS[DOMAIN_PAIR][0]
-    movies_df = pd.read_parquet(data_dir / "movies.parquet")
-    games_df = pd.read_parquet(data_dir / "games.parquet")
+    movies_df = pd.read_parquet(DATA_DIR / "movies.parquet")
+    games_df = pd.read_parquet(DATA_DIR / "games.parquet")
     items_df = pd.concat([movies_df, games_df], ignore_index=True)
 
     t0 = time.time()
@@ -310,14 +307,12 @@ def export_cooc(data_sd) -> None:
 def main() -> None:
     logger.info("=== Exporting demo artifacts to %s ===", OUT)
 
-    configure_benchmark(DOMAIN_PAIR)
-
     # Load both single-domain and cross-domain splits
     data_sd = load_cross_domain_split(
-        domain_pair=DOMAIN_PAIR, target_domain="game", single_domain_item_space=True,
+        target_domain="game", single_domain_item_space=True,
     )
     data_cd = load_cross_domain_split(
-        domain_pair=DOMAIN_PAIR, target_domain="game", single_domain_item_space=False,
+        target_domain="game", single_domain_item_space=False,
     )
 
     logger.info("SD: %d users, %d items | CD: %d users, %d items",

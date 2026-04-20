@@ -7,7 +7,6 @@ to game embeddings. Few-shot blending: source_weight = 1/(1+k_games).
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 import time
 from pathlib import Path
@@ -17,13 +16,11 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, configure_benchmark, evaluate_cross_domain,
+    POSITIVE_THRESHOLD, add_common_args, evaluate_cross_domain,
     load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
-    POSITIVE_THRESHOLD,
 )
 from ml.models.ptupcdr import PTUPCDRWrapper
 
-logger = logging.getLogger(__name__)
 ALGO = "PTUPCDR"
 
 
@@ -33,12 +30,8 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging()
-    configure_benchmark(args.domain_pair)
 
-    data = load_cross_domain_split(
-        domain_pair=args.domain_pair, target_domain=args.target,
-        single_domain_item_space=False,
-    )
+    data = load_cross_domain_split(target_domain=args.target, single_domain_item_space=False)
     verify_no_leakage(data)
 
     model = PTUPCDRWrapper(data.num_users, data.num_items,

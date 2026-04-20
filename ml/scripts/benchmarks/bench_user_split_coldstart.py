@@ -23,39 +23,31 @@ import numpy as np
 import pandas as pd
 
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, evaluate_cross_domain,
+    DATA_DIR, POSITIVE_THRESHOLD, add_common_args, evaluate_cross_domain,
     load_user_split_cold_start_split, save_result, setup_logging,
-    POSITIVE_THRESHOLD, _DOMAIN_PAIR_PATHS,
 )
 from ml.scripts.benchmarks.cooc_rerank import build_movie_game_cooc, wrap_predict_with_cooc
-from ml.models.matrix_factorization_bpr import MatrixFactorizationBPR
-from ml.models.ncf import NCF
-from ml.models.lightgcn import LightGCN
 from ml.models.cmf import CMF
 from ml.models.emcdr import EMCDRWrapper
+from ml.models.id_utils import normalize_id
+from ml.models.lightgcn import LightGCN
+from ml.models.matrix_factorization_bpr import MatrixFactorizationBPR
+from ml.models.ncf import NCF
 from ml.models.ptupcdr import PTUPCDRWrapper
 from ml.models.sbert_model import SBERTModel
 
 logger = logging.getLogger(__name__)
 
 
-def run_popularity(data) -> dict:
-    """Rank games by warm-user interaction count."""
-    from collections import Counter
-    pop_counts: Counter = Counter()
-    for _, row in data.game_train.iterrows():
-        iid = data.item_to_idx.get(str(row["item_id"]))
-        if iid is None:
-            from ml.models.id_utils import normalize_id
-            iid = data.item_to_idx.get(normalize_id(row["item_id"]))
-        if iid is not None:
-            pop_counts[iid] += 1
-    pop_scores = np.array([pop_counts.get(i, 0) for i in range(data.num_items)], dtype=np.float64)
-
-    def predict(uid):
-        return pop_scores.copy()
-
-    return predict
+def popularity_predict_fn(data):
+    """Return a predict function that ranks games by warm-user interaction count."""
+    counts = data.game_train["item_id"].map(normalize_id).value_counts()
+    pop_scores = np.zeros(data.num_items, dtype=np.float64)
+    for iid, c in counts.items():
+        idx = data.item_to_idx.get(iid)
+        if idx is not None:
+            pop_scores[idx] = c
+    return lambda uid: pop_scores.copy()
 
 
 def main() -> None:
@@ -66,12 +58,8 @@ def main() -> None:
 
     setup_logging()
 
-    data = load_user_split_cold_start_split(
-        cold_start_ratio=args.cold_ratio,
-        domain_pair=args.domain_pair,
-    )
-
-    # Force CPU — unified cross-domain ID space is too large for MPS
+    data = load_user_split_cold_start_split(cold_start_ratio=args.cold_ratio)
+    # Force CPU — unified cross-domain ID space is too large for MPS.
     data.device = "cpu"
 
     logger.info(
@@ -81,32 +69,28 @@ def main() -> None:
         data.dataset_info["n_game_interactions_warm"],
     )
 
-    results = {}
-
-    # Build cooc early — cheap, no training needed; used later to wrap CDR predict fns
+    results: dict[str, dict] = {}
     cooc = build_movie_game_cooc(data.movie_train, data.game_train,
                                   rating_threshold=POSITIVE_THRESHOLD)
 
+    def run(algo, predict_fn, desc, train_time=0.0):
+        m = evaluate_cross_domain(algo, predict_fn, data)
+        results[algo] = m
+        save_result(algo=algo, metrics=m, dataset_info=data.dataset_info,
+                    lesson=args.lesson, train_time=train_time, description=desc)
+        return m
+
+    def run_with_cooc(algo, predict_fn, desc, train_time=0.0):
+        run(algo, predict_fn, desc, train_time=train_time)
+        cooc_fn = wrap_predict_with_cooc(predict_fn, data, cooc, lam=0.05, max_target_train=0)
+        run(f"{algo}_cooc", cooc_fn, f"{desc} + cooc rerank", train_time=train_time)
+
     # --- Popularity baseline ---
     t0 = time.time()
-    pop_fn = run_popularity(data)
-    metrics = evaluate_cross_domain("Popularity", pop_fn, data)
-    results["Popularity"] = metrics
-    save_result(
-        algo="Popularity", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
-        description="Global game popularity from warm-user interactions",
-    )
-    # Popularity+cooc: personalize popularity with movie co-occurrence signal
-    # Tests whether behavioral co-occurrence alone (no trained model) can beat pure popularity
-    pop_cooc_fn = wrap_predict_with_cooc(pop_fn, data, cooc, lam=0.05, max_target_train=0)
-    metrics = evaluate_cross_domain("Popularity_cooc", pop_cooc_fn, data)
-    results["Popularity_cooc"] = metrics
-    save_result(
-        algo="Popularity_cooc", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
-        description="Popularity+cooc: global popularity personalized with movie→game co-occurrence",
-    )
+    pop_fn = popularity_predict_fn(data)
+    run_with_cooc("Popularity", pop_fn,
+                  "Global game popularity from warm-user interactions",
+                  train_time=time.time() - t0)
 
     # --- MF-BPR ---
     t0 = time.time()
@@ -114,12 +98,9 @@ def main() -> None:
     model.fit(data.game_train, data.user_to_idx, data.item_to_idx,
               epochs=60, lr=0.05, reg_lambda=0.01,
               positive_threshold=POSITIVE_THRESHOLD)
-    metrics = evaluate_cross_domain("MF_BPR", lambda uid: model.predict(uid), data)
-    save_result(
-        algo="MF_BPR", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
-        description="MF-BPR cold-start (game-only, warm users only)",
-    )
+    run("MF_BPR", lambda uid: model.predict(uid),
+        "MF-BPR cold-start (game-only, warm users only)",
+        train_time=time.time() - t0)
 
     # --- LightGCN ---
     t0 = time.time()
@@ -128,12 +109,9 @@ def main() -> None:
                    epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
                    positive_threshold=POSITIVE_THRESHOLD)
     lgcn_train_time = time.time() - t0
-    metrics = evaluate_cross_domain("LightGCN", lambda uid: lgcn_model.predict(uid), data)
-    save_result(
-        algo="LightGCN", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=lgcn_train_time,
-        description="LightGCN cold-start (game-only, warm users only)",
-    )
+    run_with_cooc("LightGCN", lambda uid: lgcn_model.predict(uid),
+                  "LightGCN cold-start (game-only, warm users only)",
+                  train_time=lgcn_train_time)
 
     # --- NCF ---
     t0 = time.time()
@@ -141,12 +119,9 @@ def main() -> None:
     model.fit(data.game_train, data.user_to_idx, data.item_to_idx,
               epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
               positive_threshold=POSITIVE_THRESHOLD)
-    metrics = evaluate_cross_domain("NCF", lambda uid: model.predict(uid), data)
-    save_result(
-        algo="NCF", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=time.time() - t0,
-        description="NCF cold-start (game-only, warm users only)",
-    )
+    run("NCF", lambda uid: model.predict(uid),
+        "NCF cold-start (game-only, warm users only)",
+        train_time=time.time() - t0)
 
     # --- CMF ---
     t0 = time.time()
@@ -154,21 +129,9 @@ def main() -> None:
     cmf_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
                   epochs=50, lr=0.001, reg_lambda=0.01, batch_size=4096,
                   positive_threshold=POSITIVE_THRESHOLD)
-    cmf_train_time = time.time() - t0
-    metrics = evaluate_cross_domain("CMF", lambda uid: cmf_model.predict(uid), data)
-    save_result(
-        algo="CMF", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=cmf_train_time,
-        description="CMF cold-start (joint MF on movies+games)",
-    )
-    metrics = evaluate_cross_domain("CMF_cooc", wrap_predict_with_cooc(
-        cmf_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
-    results["CMF_cooc"] = metrics
-    save_result(
-        algo="CMF_cooc", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=cmf_train_time,
-        description="CMF+cooc cold-start (joint MF + movie→game co-occurrence bonus)",
-    )
+    run_with_cooc("CMF", lambda uid: cmf_model.predict(uid),
+                  "CMF cold-start (joint MF on movies+games)",
+                  train_time=time.time() - t0)
 
     # --- EMCDR ---
     t0 = time.time()
@@ -176,21 +139,9 @@ def main() -> None:
     emcdr_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
                     epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
                     positive_threshold=POSITIVE_THRESHOLD)
-    emcdr_train_time = time.time() - t0
-    metrics = evaluate_cross_domain("EMCDR", lambda uid: emcdr_model.predict(uid), data)
-    save_result(
-        algo="EMCDR", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=emcdr_train_time,
-        description="EMCDR cold-start (global mapping from movie → game space)",
-    )
-    metrics = evaluate_cross_domain("EMCDR_cooc", wrap_predict_with_cooc(
-        emcdr_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
-    results["EMCDR_cooc"] = metrics
-    save_result(
-        algo="EMCDR_cooc", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=emcdr_train_time,
-        description="EMCDR+cooc cold-start (global MLP mapping + co-occurrence bonus)",
-    )
+    run_with_cooc("EMCDR", lambda uid: emcdr_model.predict(uid),
+                  "EMCDR cold-start (global mapping from movie → game space)",
+                  train_time=time.time() - t0)
 
     # --- PTUPCDR ---
     t0 = time.time()
@@ -198,39 +149,13 @@ def main() -> None:
     ptupcdr_model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
                       epochs=50, lr=0.001, reg_lambda=1e-4, batch_size=4096,
                       positive_threshold=POSITIVE_THRESHOLD)
-    ptupcdr_train_time = time.time() - t0
-    metrics = evaluate_cross_domain("PTUPCDR", lambda uid: ptupcdr_model.predict(uid), data)
-    save_result(
-        algo="PTUPCDR", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=ptupcdr_train_time,
-        description="PTUPCDR cold-start (per-user hypernetwork mapping)",
-    )
-    metrics = evaluate_cross_domain("PTUPCDR_cooc", wrap_predict_with_cooc(
-        ptupcdr_model.predict, data, cooc, lam=0.05, max_target_train=0), data)
-    results["PTUPCDR_cooc"] = metrics
-    save_result(
-        algo="PTUPCDR_cooc", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=ptupcdr_train_time,
-        description="PTUPCDR+cooc cold-start (personalized MoE mapping + co-occurrence bonus)",
-    )
+    run_with_cooc("PTUPCDR", lambda uid: ptupcdr_model.predict(uid),
+                  "PTUPCDR cold-start (per-user hypernetwork mapping)",
+                  train_time=time.time() - t0)
 
-    # --- LightGCN + co-occurrence rerank (cold users only) ---
-    lgcn_cooc_fn = wrap_predict_with_cooc(
-        lgcn_model.predict, data, cooc, lam=0.05, max_target_train=0,
-    )
-    metrics = evaluate_cross_domain("LightGCN_cooc", lgcn_cooc_fn, data)
-    results["LightGCN_cooc"] = metrics
-    save_result(
-        algo="LightGCN_cooc", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=lgcn_train_time,
-        description="LightGCN+cooc cold-start (cooc bonus gated to cold users, max_target_train=0)",
-    )
-
-    # --- SBERT-CDR on cold-start split ---
-    # Cold users have no game history → get source-only (movie) SBERT profile = pure CDR transfer
-    data_dir = _DOMAIN_PAIR_PATHS[args.domain_pair][0]
-    movies_df = pd.read_parquet(data_dir / "movies.parquet")
-    games_df = pd.read_parquet(data_dir / "games.parquet")
+    # --- SBERT-CDR ---
+    movies_df = pd.read_parquet(DATA_DIR / "movies.parquet")
+    games_df = pd.read_parquet(DATA_DIR / "games.parquet")
     items_df = pd.concat([movies_df, games_df], ignore_index=True)
 
     t0 = time.time()
@@ -242,31 +167,13 @@ def main() -> None:
         positive_threshold=POSITIVE_THRESHOLD,
         source_weight=0.5,
     )
-    sbert_train_time = time.time() - t0
-    metrics = evaluate_cross_domain("SBERT_CDR", lambda uid: sbert.predict(uid), data)
-    results["SBERT_CDR"] = metrics
-    save_result(
-        algo="SBERT_CDR", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=sbert_train_time,
-        description="SBERT-CDR cold-start: cold users get movie-only SBERT profile (source-only CDR)",
-    )
+    run_with_cooc("SBERT_CDR", lambda uid: sbert.predict(uid),
+                  "SBERT-CDR cold-start: cold users get movie-only SBERT profile",
+                  train_time=time.time() - t0)
 
-    # --- SBERT-CDR + co-occurrence rerank (cold users only) ---
-    sbert_cooc_fn = wrap_predict_with_cooc(
-        sbert.predict, data, cooc, lam=0.05, max_target_train=0,
-    )
-    metrics = evaluate_cross_domain("SBERT_CDR_cooc", sbert_cooc_fn, data)
-    results["SBERT_CDR_cooc"] = metrics
-    save_result(
-        algo="SBERT_CDR_cooc", metrics=metrics, dataset_info=data.dataset_info,
-        lesson=args.lesson, train_time=sbert_train_time,
-        description="SBERT-CDR+cooc cold-start: semantic profile + behavioral co-occurrence bonus",
-    )
-
-    # Print summary
     logger.info("\n=== L6 Cold-Start Results (Recall@10) ===")
-    for name, m in sorted(results.items(), key=lambda x: x[1].get("recall_at_10", 0), reverse=True):
-        logger.info("  %-12s  Recall@10=%.4f", name, m.get("recall_at_10", 0))
+    for name, m in sorted(results.items(), key=lambda x: x[1].get("recall@10", 0), reverse=True):
+        logger.info("  %-16s  Recall@10=%.4f", name, m.get("recall@10", 0))
 
 
 if __name__ == "__main__":

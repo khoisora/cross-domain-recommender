@@ -26,8 +26,7 @@ class MatrixFactorizationBPR(BaseRecommender):
 
     def fit(self, ratings: pd.DataFrame, user_to_idx: dict, item_to_idx: dict,
             epochs: int = 100, lr: float = 0.01, reg_lambda: float = 0.01,
-            positive_threshold: float = 4.0, batch_size: int = 4096,
-            **kwargs) -> dict[str, float]:
+            positive_threshold: float = 4.0, batch_size: int = 4096) -> dict[str, float]:
         """Train BPR on positive interactions (rating >= threshold).
 
         Uses vectorized mini-batch updates: each batch samples one negative
@@ -44,11 +43,10 @@ class MatrixFactorizationBPR(BaseRecommender):
         user_arr = mapped["_uidx"].astype(np.int64).values
         pos_arr = mapped["_iidx"].astype(np.int64).values
 
-        # Build per-user positive item sets — used by rejection sampling to
-        # ensure negatives are truly unobserved (not just low-rated)
+        # Per-user positive item sets — negatives are rejection-sampled against these.
         user_items: dict[int, set[int]] = {}
-        for u, i in zip(user_arr, pos_arr):
-            user_items.setdefault(int(u), set()).add(int(i))
+        for u, i in zip(user_arr.tolist(), pos_arr.tolist()):
+            user_items.setdefault(u, set()).add(i)
 
         np.random.seed(42)
         user_emb = np.random.normal(0, 0.01, (self.num_users, self.embedding_dim))

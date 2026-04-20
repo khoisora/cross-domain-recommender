@@ -2,10 +2,10 @@
 """Plot benchmark results from JSON files.
 
 Usage:
-    python plot_results.py --domain-pair movie_game --lesson 1
+    python plot_results.py --lesson 1
 
-Reads artifacts/<domain-pair>/results/*_lesson<N>.json and creates
-comparison bar charts with dataset_info annotation.
+Reads artifacts/results/*_lesson<N>.json and creates comparison
+bar charts with dataset_info annotation.
 """
 
 import argparse
@@ -35,11 +35,8 @@ def load_lesson_results(results_dir: Path, lesson: int) -> list[dict]:
 
 
 def create_bar_chart(results: list[dict], output_path: Path, lesson: int):
-    """Create side-by-side bar chart for Recall@10 and NDCG@10 (full-rank + sampled).
+    """Create bar chart for full-rank Recall@10 and NDCG@10.
 
-    Layout: two panels side by side.
-      Left panel: full-rank Recall@10 and NDCG@10 (all items scored).
-      Right panel: sampled HR@10 and NDCG@10 (1 pos + 99 neg protocol).
     Bottom annotation box shows dataset context from dataset_info.
     """
     if not results:
@@ -51,10 +48,8 @@ def create_bar_chart(results: list[dict], output_path: Path, lesson: int):
     x = np.arange(n)
     width = 0.35
 
-    fig, axes = plt.subplots(1, 2, figsize=(max(10, 3 * n), 5))
+    fig, ax1 = plt.subplots(1, 1, figsize=(max(8, 1.5 * n), 5))
 
-    # --- Full-rank metrics ---
-    ax1 = axes[0]
     recall = [r.get("recall@10", 0) for r in results]
     ndcg = [r.get("ndcg@10", 0) for r in results]
     ax1.bar(x - width / 2, recall, width, label="Recall@10", color="#4ECDC4", alpha=0.85)
@@ -64,32 +59,15 @@ def create_bar_chart(results: list[dict], output_path: Path, lesson: int):
     ax1.set_title("Full-Rank Evaluation @10")
     ax1.legend()
     ax1.grid(axis="y", alpha=0.3)
-    # Value labels
     for i, (r, n_) in enumerate(zip(recall, ndcg)):
         ax1.text(i - width / 2, r + 0.001, f"{r:.4f}", ha="center", va="bottom", fontsize=7)
         ax1.text(i + width / 2, n_ + 0.001, f"{n_:.4f}", ha="center", va="bottom", fontsize=7)
-
-    # --- Sampled metrics ---
-    ax2 = axes[1]
-    hr10 = [r.get("sampled_hr@10", 0) for r in results]
-    sndcg = [r.get("sampled_ndcg@10", 0) for r in results]
-    ax2.bar(x - width / 2, hr10, width, label="Sampled HR@10", color="#4ECDC4", alpha=0.85)
-    ax2.bar(x + width / 2, sndcg, width, label="Sampled NDCG@10", color="#FF6B6B", alpha=0.85)
-    ax2.set_xticks(x)
-    ax2.set_xticklabels(models, rotation=30, ha="right")
-    ax2.set_title("Sampled (1+99) Evaluation @10")
-    ax2.legend()
-    ax2.grid(axis="y", alpha=0.3)
-    for i, (h, s) in enumerate(zip(hr10, sndcg)):
-        ax2.text(i - width / 2, h + 0.002, f"{h:.4f}", ha="center", va="bottom", fontsize=7)
-        ax2.text(i + width / 2, s + 0.002, f"{s:.4f}", ha="center", va="bottom", fontsize=7)
 
     # --- Dataset info annotation ---
     ds = results[0].get("dataset_info", {})
     def _fmt(v): return f"{v:,}" if isinstance(v, int) else str(v)
     games_val = ds.get('n_game_interactions', ds.get('n_game_interactions_warm', '?'))
     info_text = (
-        f"Domain: {ds.get('domain_pair', '?')}\n"
         f"Cohort: {ds.get('cohort_filter', '?')}\n"
         f"Users: {_fmt(ds.get('n_users', '?'))}  |  "
         f"Movies: {_fmt(ds.get('n_movie_interactions', '?'))}  |  "
@@ -152,19 +130,12 @@ def create_subgroup_chart(results: list[dict], output_path: Path, lesson: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Plot benchmark results.")
-    parser.add_argument("--domain-pair", default="movie_game")
     parser.add_argument("--lesson", type=int, required=True)
     args = parser.parse_args()
 
-    # Resolve paths
-    from ml.scripts.benchmarks.benchmark_common import _DOMAIN_PAIR_PATHS
-    if args.domain_pair not in _DOMAIN_PAIR_PATHS:
-        print(f"Unknown domain pair: {args.domain_pair}")
-        sys.exit(1)
-
-    _, artifacts_dir = _DOMAIN_PAIR_PATHS[args.domain_pair]
-    results_dir = artifacts_dir / "results"
-    plots_dir = artifacts_dir / "plots"
+    from ml.scripts.benchmarks.benchmark_common import ARTIFACTS_DIR
+    results_dir = ARTIFACTS_DIR / "results"
+    plots_dir = ARTIFACTS_DIR / "plots"
 
     results = load_lesson_results(results_dir, args.lesson)
     if not results:

@@ -47,8 +47,7 @@ class EMCDRWrapper:
     def fit(self, ratings, user_to_idx, item_to_idx,
             epochs: int = 20, lr: float = 0.001, reg_lambda: float = 1e-4,
             batch_size: int = 4096, positive_threshold: float = 4.0,
-            source_domain: str = "movie", target_domain: str = "game",
-            model_hyperparams: dict[str, Any] | None = None) -> dict[str, float]:
+            source_domain: str = "movie", target_domain: str = "game") -> dict[str, float]:
         t0 = time.time()
         extra: dict[str, Any] = {
             "train_epochs": ["SOURCE:20", "TARGET:20", "OVERLAP:10"],
@@ -59,8 +58,6 @@ class EMCDRWrapper:
             "mapping_function": "mlp",
             "mlp_hidden_size": [self.embedding_dim],
         }
-        if model_hyperparams:
-            extra.update(model_hyperparams)
 
         self._model, self._rb_users, self._rb_items = fit_cdr(
             "EMCDR", extra,
@@ -100,41 +97,35 @@ class EMCDRWrapper:
         tgt_item_np = tgt_item_emb.detach().numpy()
 
         # Scatter RecBole embeddings into our contiguous index space.
-        # rb_u/rb_i = 0 means PAD (item/user unknown to RecBole), skip those.
+        # rb_u/rb_i = 0 is PAD (unknown to RecBole). Only target-domain items
+        # (rb_i < target_n) have valid embeddings.
         emb_dim = all_user_np.shape[1]
         self.user_embeddings = np.zeros((len(self._rb_users), emb_dim), dtype=np.float32)
         self.item_embeddings = np.zeros((len(self._rb_items), emb_dim), dtype=np.float32)
 
-        for our_idx, rb_u in enumerate(self._rb_users):
-            if rb_u != 0:
-                self.user_embeddings[our_idx] = all_user_np[rb_u]
+        u_valid = self._rb_users != 0
+        self.user_embeddings[u_valid] = all_user_np[self._rb_users[u_valid]]
 
-        # Only target-domain items have embeddings (source items aren't scored)
-        target_n_int = int(target_n)
-        for our_idx, rb_i in enumerate(self._rb_items):
-            if rb_i != 0 and rb_i < target_n_int:
-                self.item_embeddings[our_idx] = tgt_item_np[rb_i]
+        i_valid = (self._rb_items != 0) & (self._rb_items < int(target_n))
+        self.item_embeddings[i_valid] = tgt_item_np[self._rb_items[i_valid]]
 
         self._valid_items = self._rb_items != 0
-        self._valid_users = self._rb_users != 0
+        self._valid_users = u_valid
         logger.info("EMCDR: %d/%d users valid, %d/%d items valid",
                     self._valid_users.sum(), len(self._rb_users),
                     self._valid_items.sum(), len(self._rb_items))
 
-    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
+    def predict(self, user_idx: int) -> np.ndarray:
         if self.user_embeddings is None:
             raise ValueError("Model not trained yet")
         # Invalid users (unmapped by RecBole) get -inf scores everywhere so
         # they never contaminate evaluation metrics
         if not self._valid_users[user_idx]:
-            n = self.num_items if item_indices is None else len(item_indices)
-            return np.full(n, -np.inf, dtype=np.float64)
+            return np.full(self.num_items, -np.inf, dtype=np.float64)
         user_emb = self.user_embeddings[user_idx]
-        items = self.item_embeddings if item_indices is None else self.item_embeddings[item_indices]
-        scores = (items @ user_emb).astype(np.float64)
+        scores = (self.item_embeddings @ user_emb).astype(np.float64)
         # Mask items that RecBole didn't learn embeddings for (zero-vector items)
-        valid = self._valid_items if item_indices is None else self._valid_items[item_indices]
-        scores[~valid] = -np.inf
+        scores[~self._valid_items] = -np.inf
         return scores
 
     def get_user_embeddings(self) -> np.ndarray:

@@ -150,9 +150,7 @@ def main():
     logger.info("Loading data (no min_target_user_interactions filter)...")
     data = load_cross_domain_split(
         max_eval_users=None,
-        overlap_min_interactions=0,
         target_domain="game",
-        domain_pair="movie_game",
     )
     logger.info(
         "Eval users: %d  |  new subgroups: %s",

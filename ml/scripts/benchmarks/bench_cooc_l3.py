@@ -23,19 +23,19 @@ _root = str(Path(__file__).resolve().parent.parent.parent.parent)
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from ml.evaluation.metrics import compute_all_metrics, aggregate_metrics
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, configure_benchmark, evaluate_cross_domain,
-    load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
-    POSITIVE_THRESHOLD, K,
+    POSITIVE_THRESHOLD, add_common_args, evaluate_cross_domain,
+    load_cross_domain_split, make_full_rank_val_fn,
+    save_result, setup_logging, verify_no_leakage,
 )
 from ml.scripts.benchmarks.cooc_rerank import build_movie_game_cooc, wrap_predict_with_cooc
+from ml.models.cmf import CMF
+from ml.models.emcdr import EMCDRWrapper
 from ml.models.lightgcn import LightGCN
 from ml.models.matrix_factorization_bpr import MatrixFactorizationBPR
 from ml.models.ncf import NCF
-from ml.models.cmf import CMF
-from ml.models.emcdr import EMCDRWrapper
 from ml.models.ptupcdr import PTUPCDRWrapper
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,18 +45,10 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging()
-    configure_benchmark(args.domain_pair)
 
     # LightGCN uses single-domain item space; CDR models need unified space.
-    # We load both and share user/item maps via the same CrossDomainSplit seed.
-    data_sd = load_cross_domain_split(
-        domain_pair=args.domain_pair, target_domain=args.target,
-        single_domain_item_space=True,
-    )
-    data_cd = load_cross_domain_split(
-        domain_pair=args.domain_pair, target_domain=args.target,
-        single_domain_item_space=False,
-    )
+    data_sd = load_cross_domain_split(target_domain=args.target, single_domain_item_space=True)
+    data_cd = load_cross_domain_split(target_domain=args.target, single_domain_item_space=False)
     verify_no_leakage(data_sd)
     verify_no_leakage(data_cd)
 
@@ -65,7 +57,6 @@ def main() -> None:
                 data_sd.dataset_info["n_movie_interactions"],
                 data_sd.dataset_info["n_game_interactions"])
 
-    # Build cooc from training data — apply to all users (no max_target_train gate)
     cooc = build_movie_game_cooc(data_sd.movie_train, data_sd.game_train,
                                   rating_threshold=POSITIVE_THRESHOLD)
 
@@ -113,26 +104,6 @@ def main() -> None:
     run("NCF", m, data_sd, "NCF single-domain LLO, L3 overlap dataset")
 
     # --- LightGCN (single-domain) with early stopping ---
-    target_mask = np.zeros(data_sd.num_items, dtype=bool)
-    for idx in data_sd.target_item_indices:
-        target_mask[idx] = True
-    val_users = [uid for uid in data_sd.eval_user_indices if data_sd.game_val_relevant.get(uid)]
-
-    def val_ndcg(model):
-        per_user = []
-        for uid in val_users[:500]:
-            relevant = data_sd.game_val_relevant.get(uid, set())
-            if not relevant:
-                continue
-            scores = model.predict(uid).copy()
-            scores[~target_mask] = -np.inf
-            for iid in data_sd.target_train_seen.get(uid, set()):
-                if 0 <= iid < data_sd.num_items:
-                    scores[iid] = -np.inf
-            top = np.argsort(scores)[::-1][:K].tolist()
-            per_user.append(compute_all_metrics(top, relevant, k_values=[K]))
-        return aggregate_metrics(per_user).get("ndcg@10", 0.0) if per_user else 0.0
-
     t0 = time.time()
     lgcn = LightGCN(data_sd.num_users, data_sd.num_items,
                     embedding_dim=96, num_layers=3, device="cpu", dropout=0.1)
@@ -141,7 +112,7 @@ def main() -> None:
              positive_threshold=POSITIVE_THRESHOLD,
              neg_sampling="popularity", neg_popularity_alpha=0.75,
              neg_item_indices=np.array(sorted(data_sd.target_item_indices), dtype=np.int64),
-             early_stopping_patience=5, val_metric_fn=val_ndcg, val_every=3)
+             early_stopping_patience=5, val_metric_fn=make_full_rank_val_fn(data_sd), val_every=3)
     logger.info("LightGCN trained in %.1fs", time.time() - t0)
     run("LightGCN", lgcn, data_sd, "LightGCN single-domain LLO, L3 overlap dataset, emb=96, layers=3")
 
@@ -173,13 +144,12 @@ def main() -> None:
     logger.info("PTUPCDR trained in %.1fs", time.time() - t0)
     run("PTUPCDR", m, data_cd, "PTUPCDR cross-domain LLO, L3 overlap dataset")
 
-    # Summary
     logger.info("\n=== L3 Cooc Ablation (Recall@10) ===")
     for name in ["MF_BPR", "NCF", "LightGCN", "CMF", "EMCDR", "PTUPCDR"]:
         base = results.get(name, {}).get("recall@10", 0)
-        cooc = results.get(f"{name}_cooc", {}).get("recall@10", 0)
-        delta_pct = 100 * (cooc - base) / base if base > 0 else float("inf")
-        logger.info("  %-12s  base=%.4f  cooc=%.4f  %+.1f%%", name, base, cooc, delta_pct)
+        cooc_r = results.get(f"{name}_cooc", {}).get("recall@10", 0)
+        delta_pct = 100 * (cooc_r - base) / base if base > 0 else float("inf")
+        logger.info("  %-12s  base=%.4f  cooc=%.4f  %+.1f%%", name, base, cooc_r, delta_pct)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
-"""NCF (NeuMF) using RecBole with full model inference (GMF + MLP + predict layer).
+"""NCF (NeuMF) using RecBole with full model inference.
 
 Paper: Xiangnan He et al. "Neural Collaborative Filtering", WWW 2017.
 
-Uses RecBole's NeuMF implementation. Scoring uses the full forward pass
-(GMF + MLP branches + prediction layer), not just GMF dot product.
+Scoring uses the full NeuMF forward pass (GMF + MLP + predict layer),
+not just GMF dot product.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from recbole.data import create_dataset, data_preparation
 from recbole.model.general_recommender import NeuMF as RecBoleNeuMF
 from recbole.trainer import Trainer
 
-from .id_utils import normalize_id, normalize_maps
+from .id_utils import map_user_item_columns, normalize_id, normalize_maps
 
 logger = logging.getLogger(__name__)
 
@@ -57,20 +57,21 @@ class NCF:
         self.user_to_idx = user_to_idx
         self.item_to_idx = item_to_idx
 
-        # Write RecBole .inter file
-        pos = ratings[ratings["rating"] >= positive_threshold].copy()
-        rows = []
-        for _, r in pos.iterrows():
-            uid, iid = normalize_id(r["user_id"]), normalize_id(r["item_id"])
-            if uid in user_to_idx and iid in item_to_idx:
-                rows.append({"user_id:token": uid, "item_id:token": iid, "rating:float": 1.0})
+        # Vectorized filter + ID alignment for the RecBole .inter file.
+        pos = ratings[ratings["rating"] >= positive_threshold]
+        mapped = map_user_item_columns(pos, user_to_idx, item_to_idx)
+        inter_df = pd.DataFrame({
+            "user_id:token": mapped["user_id"].map(normalize_id),
+            "item_id:token": mapped["item_id"].map(normalize_id),
+            "rating:float": 1.0,
+        })
+        logger.info("NCF: %d positive interactions for RecBole", len(inter_df))
 
         temp_dir = tempfile.mkdtemp()
         ds_name = "ncf_temp"
         ds_dir = os.path.join(temp_dir, ds_name)
         os.makedirs(ds_dir)
-        pd.DataFrame(rows).to_csv(os.path.join(ds_dir, f"{ds_name}.inter"), sep="\t", index=False)
-        logger.info("NCF: %d positive interactions for RecBole", len(rows))
+        inter_df.to_csv(os.path.join(ds_dir, f"{ds_name}.inter"), sep="\t", index=False)
 
         config = Config(model="NeuMF", dataset=ds_name, config_dict={
             "model": "NeuMF", "dataset": ds_name, "data_path": temp_dir,
@@ -102,48 +103,25 @@ class NCF:
         return {"train_time": train_time}
 
     def _build_index_maps(self):
-        """Build maps from our index space to RecBole token IDs.
+        """Map our contiguous indices ↔ RecBole internal token IDs (0 = PAD)."""
+        def translate(token2id: dict, our_map: dict) -> dict[int, int]:
+            return {
+                idx: rb_id for token, rb_id in token2id.items()
+                if rb_id != 0 and (idx := our_map.get(normalize_id(token))) is not None
+            }
 
-        RecBole uses its own internal token IDs (with 0 = PAD). We need to
-        translate between our contiguous indices and RecBole's to extract
-        embeddings and run forward passes correctly.
-        """
-        token2id_user = self.dataset.field2token_id["user_id"]
-        token2id_item = self.dataset.field2token_id["item_id"]
+        self._idx_to_recbole_uid = translate(self.dataset.field2token_id["user_id"], self.user_to_idx)
+        self._idx_to_recbole_iid = translate(self.dataset.field2token_id["item_id"], self.item_to_idx)
 
-        # Map our user indices → RecBole user token IDs (skip PAD=0)
-        self._idx_to_recbole_uid = {}
-        for token, rb_id in token2id_user.items():
-            if rb_id == 0:
-                continue
-            idx = self.user_to_idx.get(normalize_id(token))
-            if idx is not None:
-                self._idx_to_recbole_uid[idx] = rb_id
-
-        # Map our item indices → RecBole item token IDs
-        self._idx_to_recbole_iid = {}
-        for token, rb_id in token2id_item.items():
-            if rb_id == 0:
-                continue
-            idx = self.item_to_idx.get(normalize_id(token))
-            if idx is not None:
-                self._idx_to_recbole_iid[idx] = rb_id
-
-        # Pre-sorted arrays for batch scoring in predict(): our_item_indices[i]
-        # corresponds to recbole_item_ids[i] for vectorized forward pass
+        # Pre-sorted arrays for batch scoring: our_item_indices[i] ↔ recbole_item_ids[i].
         sorted_pairs = sorted(self._idx_to_recbole_iid.items())
         self._our_item_indices = np.array([p[0] for p in sorted_pairs])
         self._recbole_item_ids = torch.tensor(
-            [p[1] for p in sorted_pairs], dtype=torch.long
+            [p[1] for p in sorted_pairs], dtype=torch.long,
         ).to(next(self.model.parameters()).device)
 
     def _extract_embeddings(self):
-        """Extract GMF-branch embeddings for artifact saving.
-
-        Note: these are only the GMF (dot-product) branch embeddings, not the
-        full NeuMF output. They're used for downstream embedding analysis only;
-        actual scoring uses the full forward pass in predict().
-        """
+        """Extract GMF-branch embeddings for downstream analysis (not scoring)."""
         self.user_embeddings = np.zeros((self.num_users, self.embedding_dim))
         self.item_embeddings = np.zeros((self.num_items, self.embedding_dim))
         if self.model is None:
@@ -152,46 +130,33 @@ class NCF:
         with torch.no_grad():
             u_emb = self.model.user_mf_embedding.weight.cpu().numpy()
             i_emb = self.model.item_mf_embedding.weight.cpu().numpy()
-            for token, rb_id in self.dataset.field2token_id["user_id"].items():
-                if rb_id == 0:
-                    continue
-                idx = self.user_to_idx.get(normalize_id(token))
-                if idx is not None and rb_id < u_emb.shape[0]:
-                    self.user_embeddings[idx] = u_emb[rb_id]
-            for token, rb_id in self.dataset.field2token_id["item_id"].items():
-                if rb_id == 0:
-                    continue
-                idx = self.item_to_idx.get(normalize_id(token))
-                if idx is not None and rb_id < i_emb.shape[0]:
-                    self.item_embeddings[idx] = i_emb[rb_id]
 
-    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
-        """Score using full NeuMF forward pass (GMF + MLP + predict layer).
+        for idx, rb_id in self._idx_to_recbole_uid.items():
+            if rb_id < u_emb.shape[0]:
+                self.user_embeddings[idx] = u_emb[rb_id]
+        for idx, rb_id in self._idx_to_recbole_iid.items():
+            if rb_id < i_emb.shape[0]:
+                self.item_embeddings[idx] = i_emb[rb_id]
 
-        Unlike MF-BPR which uses dot-product scoring, NeuMF routes through both
-        GMF and MLP branches then combines via a learned prediction layer. This
-        captures both linear (GMF) and non-linear (MLP) user-item interactions.
-        """
+    def predict(self, user_idx: int) -> np.ndarray:
+        """Score using full NeuMF forward pass (GMF + MLP + predict layer)."""
         if self.model is None or self._idx_to_recbole_uid is None:
-            return np.zeros(self.num_items if item_indices is None else len(item_indices))
+            return np.zeros(self.num_items)
 
         rb_uid = self._idx_to_recbole_uid.get(user_idx)
         if rb_uid is None:
-            return np.zeros(self.num_items if item_indices is None else len(item_indices))
+            return np.zeros(self.num_items)
 
         self.model.eval()
         with torch.no_grad():
             device = next(self.model.parameters()).device
-            # Broadcast user ID to match all item IDs for batched forward pass
             n_items = len(self._recbole_item_ids)
             user_t = torch.full((n_items,), rb_uid, dtype=torch.long, device=device)
             raw_scores = self.model.forward(user_t, self._recbole_item_ids).detach().cpu().numpy()
 
-        # Scatter scores into our full item space; items not in RecBole get -inf
         scores = np.full(self.num_items, -np.inf, dtype=np.float32)
         scores[self._our_item_indices] = raw_scores.astype(np.float32)
-
-        return scores[item_indices] if item_indices is not None else scores
+        return scores
 
     def get_user_embeddings(self) -> np.ndarray:
         return self.user_embeddings if self.user_embeddings is not None else np.zeros((self.num_users, self.embedding_dim))

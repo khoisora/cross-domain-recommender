@@ -116,15 +116,7 @@ def extract_metrics(output):
                 metrics["ndcg@10"] = float(line.split("NDCG@10=")[1].split()[0])
             except:
                 pass
-        if "HitRate@10=" in line or "hit_rate@10=" in line:
-            try:
-                if "HitRate@10=" in line:
-                    metrics["hit_rate@10"] = float(line.split("HitRate@10=")[1].split()[0])
-                else:
-                    metrics["hit_rate@10"] = float(line.split("hit_rate@10=")[1].split()[0])
-            except:
-                pass
-    
+
     return metrics
 
 def run_all_benchmarks():
@@ -173,7 +165,6 @@ def create_plots(results):
                 "Model": model,
                 "Recall@10": metrics["recall@10"],
                 "NDCG@10": metrics.get("ndcg@10", 0),
-                "HitRate@10": metrics.get("hit_rate@10", 0),
                 "Type": "Single-Domain" if model in SINGLE_DOMAIN_MODELS else "Cross-Domain",
                 "Time (s)": metrics.get("train_time_s", 0)
             })

@@ -1,13 +1,11 @@
 """CMF (Collective Matrix Factorization) — cross-domain benchmark.
 
 Lesson 2: CMF jointly factorizes both domains with shared user factors.
-Cross-domain model — uses both movie and game interactions.
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 import time
 from pathlib import Path
@@ -17,13 +15,11 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, configure_benchmark, evaluate_cross_domain,
+    POSITIVE_THRESHOLD, add_common_args, evaluate_cross_domain,
     load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
-    POSITIVE_THRESHOLD,
 )
 from ml.models.cmf import CMF
 
-logger = logging.getLogger(__name__)
 ALGO = "CMF"
 
 
@@ -33,22 +29,15 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging()
-    configure_benchmark(args.domain_pair)
 
-    # CDR models need unified item space (both movie + game items)
-    data = load_cross_domain_split(
-        domain_pair=args.domain_pair, target_domain=args.target,
-        single_domain_item_space=False,
-    )
+    # CDR models need unified item space (movie + game).
+    data = load_cross_domain_split(target_domain=args.target, single_domain_item_space=False)
     verify_no_leakage(data)
 
-    model = CMF(data.num_users, data.num_items,
-                embedding_dim=96, device=data.device)
+    model = CMF(data.num_users, data.num_items, embedding_dim=96, device=data.device)
     t0 = time.time()
-    # alpha=0.05: lower source weight avoids over-pushing user embeddings toward
-    # movie space; alpha=0.3 (original) degraded game ranking by 3×.
-    # lr=0.0005: RecBole uses Adam — lr=0.01 (original) is 20× too high and
-    # causes the joint loss to diverge.
+    # alpha=0.05: higher source weights over-push user emb toward movie space.
+    # lr=0.0005: RecBole uses Adam; lr=0.01 diverges the joint loss.
     model.fit(data.cross_train, data.user_to_idx, data.item_to_idx,
               epochs=100, lr=0.0005, reg_lambda=0.0, batch_size=8192,
               alpha=0.05, positive_threshold=POSITIVE_THRESHOLD)

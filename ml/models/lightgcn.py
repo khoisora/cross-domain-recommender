@@ -208,9 +208,9 @@ class LightGCN:
         logger.info("LightGCN trained in %.1fs", time.time() - t0)
         return {"final_loss": avg_loss, "train_time": time.time() - t0}
 
-    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
+    def predict(self, user_idx: int) -> np.ndarray:
         if self._model is None:
-            return np.zeros(self.num_items if item_indices is None else len(item_indices))
+            return np.zeros(self.num_items)
         self._model.eval()
         with torch.no_grad():
             # Cache the full GCN embedding (users + items) across predict() calls.
@@ -220,8 +220,7 @@ class LightGCN:
             all_emb = self._cached_all_emb
             u_emb = all_emb[user_idx]
             # Item nodes start at offset num_users in the bipartite graph
-            scores = (all_emb[self.num_users:] @ u_emb).cpu().numpy()
-        return scores[item_indices] if item_indices is not None else scores
+            return (all_emb[self.num_users:] @ u_emb).cpu().numpy()
 
     def get_user_embeddings(self) -> np.ndarray:
         if self._model is None:

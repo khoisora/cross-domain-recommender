@@ -1,12 +1,7 @@
-"""Cross-domain evaluation: full-rank and sampled-negative protocols.
+"""Cross-domain full-rank evaluation.
 
-Two complementary evaluation protocols:
-  1. Full-rank: score ALL items, mask non-target and train-seen items, rank top-K.
-     Measures true ranking ability but is sensitive to item catalog size.
-  2. Sampled (1+99): score 1 positive + 99 random negatives, check if positive is in top-K.
-     More comparable across different catalog sizes, standard in RecSys papers.
-
-Both protocols report per-subgroup breakdowns for fine-grained analysis.
+Score ALL items, mask non-target and train-seen items, rank top-K, compute
+Recall@K and NDCG@K. Reports per-subgroup breakdowns for fine-grained analysis.
 """
 
 from __future__ import annotations
@@ -23,12 +18,7 @@ logger = logging.getLogger(__name__)
 K = 10
 
 
-def evaluate_full_rank(
-    model_name: str,
-    predict_fn,
-    data,
-    eval_user_override: list[int] | None = None,
-) -> dict:
+def evaluate_full_rank(model_name: str, predict_fn, data) -> dict:
     """Full-rank evaluation on held-out target-domain test set.
 
     For each eval user:
@@ -52,8 +42,7 @@ def evaluate_full_rank(
     per_user_metrics = []
     per_user_uid = []
 
-    eval_users = eval_user_override or data.eval_user_indices
-    for uid in eval_users:
+    for uid in data.eval_user_indices:
         # Skip users with no ground-truth relevant items in the test set
         relevant = data.target_test_relevant.get(uid, set())
         if not relevant:
@@ -95,93 +84,10 @@ def evaluate_full_rank(
     }
 
 
-def evaluate_sampled(
-    model_name: str,
-    predict_fn,
-    data,
-    n_negatives: int = 99,
-    seed: int = 42,
-) -> dict:
-    """Sampled-negative evaluation: 1 positive + n_negatives random target items.
-
-    For each eval user:
-      1. Take one ground-truth positive test item
-      2. Sample n_negatives random target items (excluding train-seen and test item)
-      3. Score all candidates, compute rank of the positive item
-      4. HR@K = 1 if positive ranked in top-K, else 0
-      5. NDCG@K = 1/log2(rank+1) if ranked in top-K, else 0
-
-    This protocol is widely used in RecSys papers (e.g., NCF, LightGCN) and is
-    more comparable across datasets with different catalog sizes.
-    """
-    rng = np.random.RandomState(seed)
-    target_items_arr = np.array(sorted(data.target_item_indices), dtype=np.int64)
-
-    per_user_metrics = []
-    per_user_uid = []
-
-    for uid in data.eval_user_indices:
-        relevant = data.target_test_relevant.get(uid, set())
-        if not relevant:
-            continue
-        # Standard sampled protocol: pick ONE positive test item as the target
-        test_item = next(iter(relevant))
-
-        # Negative pool: all target items except train-seen and the test item.
-        # This ensures negatives are plausibly unobserved, not just held-out.
-        exclude = data.target_train_seen.get(uid, set()) | {test_item}
-        pool = target_items_arr[~np.isin(target_items_arr, list(exclude))]
-        if len(pool) < n_negatives:
-            continue
-
-        neg_items = rng.choice(pool, size=n_negatives, replace=False)
-        # candidates[0] = the positive; candidates[1:] = negatives
-        candidates = np.concatenate([[test_item], neg_items])
-
-        try:
-            scores = predict_fn(uid)
-        except Exception:
-            continue
-
-        # Rank the positive among all 100 candidates (1 pos + 99 neg).
-        # rank=1 means the model scored the positive highest.
-        cand_scores = scores[candidates]
-        rank = int((cand_scores > cand_scores[0]).sum()) + 1
-
-        m = {}
-        for k in [10]:
-            m[f"hr@{k}"] = float(rank <= k)
-            m[f"ndcg@{k}"] = (1.0 / np.log2(rank + 2)) if rank <= k else 0.0
-        per_user_metrics.append(m)
-        per_user_uid.append(uid)
-
-    overall = {}
-    if per_user_metrics:
-        for key in per_user_metrics[0]:
-            overall[f"sampled_{key}"] = float(np.mean([m[key] for m in per_user_metrics]))
-
-    logger.info(
-        "%s [sampled@%d] (%d users): HR@10=%.4f  NDCG@10=%.4f",
-        model_name, n_negatives, len(per_user_metrics),
-        overall.get("sampled_hr@10", 0), overall.get("sampled_ndcg@10", 0),
-    )
-
-    subgroup_results = _aggregate_subgroups(
-        data.user_subgroups, per_user_uid, per_user_metrics, prefix="sampled_"
-    )
-
-    return {
-        **overall,
-        "sampled_subgroups": subgroup_results,
-        "n_sampled_users": len(per_user_metrics),
-    }
-
-
 def _aggregate_subgroups(
     user_subgroups: dict[str, list[int]],
     per_user_uid: list[int],
     per_user_metrics: list[dict],
-    prefix: str = "",
 ) -> dict[str, dict[str, float]]:
     """Aggregate metrics per subgroup. Silently skips empty subgroups.
 
@@ -194,8 +100,8 @@ def _aggregate_subgroups(
     for sg_name, sg_uids in user_subgroups.items():
         sg_m = [per_user_metrics[uid_to_pos[uid]] for uid in sg_uids if uid in uid_to_pos]
         if sg_m:
-            agg = {}
-            for key in sg_m[0]:
-                agg[f"{prefix}{key}"] = float(np.mean([m[key] for m in sg_m]))
-            results[sg_name] = agg
+            results[sg_name] = {
+                key: float(np.mean([m[key] for m in sg_m]))
+                for key in sg_m[0]
+            }
     return results

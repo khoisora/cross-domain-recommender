@@ -7,7 +7,6 @@ top-K evaluation protocol. Should outperform explicit MF on Recall@10/NDCG@10.
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 import time
 from pathlib import Path
@@ -17,13 +16,10 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from ml.scripts.benchmarks.benchmark_common import (
-    add_common_args, configure_benchmark, evaluate_cross_domain,
+    POSITIVE_THRESHOLD, add_common_args, evaluate_cross_domain,
     load_cross_domain_split, save_result, setup_logging, verify_no_leakage,
-    POSITIVE_THRESHOLD,
 )
 from ml.models.matrix_factorization_bpr import MatrixFactorizationBPR
-
-logger = logging.getLogger(__name__)
 
 ALGO = "MF_BPR"
 
@@ -34,13 +30,8 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging()
-    configure_benchmark(args.domain_pair)
 
-    data = load_cross_domain_split(
-        domain_pair=args.domain_pair,
-        target_domain=args.target,
-        single_domain_item_space=True,
-    )
+    data = load_cross_domain_split(target_domain=args.target, single_domain_item_space=True)
     verify_no_leakage(data)
 
     model = MatrixFactorizationBPR(
@@ -48,7 +39,7 @@ def main() -> None:
     )
     t0 = time.time()
     # lr=0.05: lr=0.005 stalls at loss=0.693 (random) on sparse datasets because
-    # numpy SGD gradient steps are too small to escape the flat initialization region.
+    # numpy SGD gradient steps are too small to escape the flat init region.
     model.fit(data.target_train, data.user_to_idx, data.item_to_idx,
               epochs=60, lr=0.05, reg_lambda=0.01,
               positive_threshold=POSITIVE_THRESHOLD)

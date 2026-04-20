@@ -87,15 +87,15 @@ class SBERTModel:
         num_items = len(item_to_idx)
         self.num_items = num_items
 
+        ext_ids = items_df["external_id"].astype(str)
+        idxs = ext_ids.map(item_to_idx)
+        matched = items_df[idxs.notna()]
+        matched_idxs = idxs.dropna().astype(int).values
+
         texts: list[str] = [""] * num_items
-        n_matched = 0
-        for _, row in items_df.iterrows():
-            ext_id = str(row.get("external_id", ""))
-            idx = item_to_idx.get(ext_id)
-            if idx is None:
-                continue
-            texts[idx] = self._build_item_text(row.to_dict())
-            n_matched += 1
+        for pos, (_, row) in zip(matched_idxs, matched.iterrows()):
+            texts[pos] = self._build_item_text(row.to_dict())
+        n_matched = len(matched_idxs)
 
         logger.info("Encoding %d/%d items with SBERT '%s' (batch=%d)…",
                     n_matched, num_items, self.model_name, batch_size)
@@ -126,14 +126,12 @@ class SBERTModel:
         accum = np.zeros((num_users, dim), dtype=np.float64)
 
         pos = ratings[ratings["rating"] >= positive_threshold]
-        logger.info("Building user embeddings from %d positive ratings…", len(pos))
+        u_idx = pos["user_id"].astype(str).map(user_to_idx)
+        i_idx = pos["item_id"].astype(str).map(item_to_idx)
+        valid = u_idx.notna() & i_idx.notna()
+        logger.info("Building user embeddings from %d positive ratings…", int(valid.sum()))
 
-        for _, row in pos.iterrows():
-            u_idx = user_to_idx.get(str(row["user_id"]))
-            i_idx = item_to_idx.get(str(row["item_id"]))
-            if u_idx is None or i_idx is None:
-                continue
-            accum[u_idx] += self.item_embeddings[i_idx]
+        np.add.at(accum, u_idx[valid].astype(int).values, self.item_embeddings[i_idx[valid].astype(int).values])
 
         norms = np.linalg.norm(accum, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
@@ -169,20 +167,22 @@ class SBERTModel:
         tgt_counts = np.zeros(num_users, dtype=np.int32)
 
         pos_all = cross_train[cross_train["rating"] >= positive_threshold]
-        logger.info("Building CDR user profiles from %d positive ratings…", len(pos_all))
+        u_idx = pos_all["user_id"].astype(str).map(user_to_idx)
+        i_idx = pos_all["item_id"].astype(str).map(item_to_idx)
+        valid = u_idx.notna() & i_idx.notna()
+        logger.info("Building CDR user profiles from %d positive ratings…", int(valid.sum()))
 
-        for _, row in pos_all.iterrows():
-            u_idx = user_to_idx.get(str(row["user_id"]))
-            i_idx = item_to_idx.get(str(row["item_id"]))
-            if u_idx is None or i_idx is None:
-                continue
-            domain = str(row.get("domain", ""))
-            if domain == source_domain:
-                src_accum[u_idx] += self.item_embeddings[i_idx]
-                src_counts[u_idx] += 1
-            elif domain == target_domain:
-                tgt_accum[u_idx] += self.item_embeddings[i_idx]
-                tgt_counts[u_idx] += 1
+        valid_rows = pos_all[valid]
+        u = u_idx[valid].astype(int).values
+        i = i_idx[valid].astype(int).values
+        domain = valid_rows["domain"].astype(str).values
+
+        src_mask = domain == source_domain
+        tgt_mask = domain == target_domain
+        np.add.at(src_accum, u[src_mask], self.item_embeddings[i[src_mask]])
+        np.add.at(tgt_accum, u[tgt_mask], self.item_embeddings[i[tgt_mask]])
+        np.add.at(src_counts, u[src_mask], 1)
+        np.add.at(tgt_counts, u[tgt_mask], 1)
 
         # Compute per-user profiles based on which domains they have activity in.
         # All three cases produce un-normalized embeddings that get L2-normalized

@@ -76,8 +76,7 @@ class PTUPCDRWrapper:
             epochs: int = 20, lr: float = 0.001, reg_lambda: float = 1e-4,
             batch_size: int = 4096, positive_threshold: float = 4.0,
             source_domain: str = "movie", target_domain: str = "game",
-            meta_epochs: int = 30, meta_lr: float = 0.001, n_experts: int = 8,
-            model_hyperparams: dict[str, Any] | None = None) -> dict[str, float]:
+            meta_epochs: int = 30, meta_lr: float = 0.001, n_experts: int = 8) -> dict[str, float]:
         t0 = time.time()
 
         # Phase 1+2: Train source-domain MF (movies) and target-domain MF (games)
@@ -92,8 +91,6 @@ class PTUPCDRWrapper:
             "mapping_function": "mlp",
             "mlp_hidden_size": [self.embedding_dim],
         }
-        if model_hyperparams:
-            extra.update(model_hyperparams)
 
         self._model, self._rb_users, self._rb_items = fit_cdr(
             "EMCDR", extra,
@@ -120,23 +117,21 @@ class PTUPCDRWrapper:
         # contiguous index space. rb_i=0 is RecBole's PAD token (unmapped items).
         src_item_np = src_item_emb_all.detach().numpy()
         src_item_our = np.zeros((len(item_to_idx), d), dtype=np.float32)
-        for our_i, rb_i in enumerate(self._rb_items):
-            if rb_i > 0 and rb_i < src_item_np.shape[0]:
-                src_item_our[our_i] = src_item_np[rb_i]
+        i_valid = (self._rb_items > 0) & (self._rb_items < src_item_np.shape[0])
+        src_item_our[i_valid] = src_item_np[self._rb_items[i_valid]]
 
         # Per-user preference aggregation over source items
         src_ratings = ratings[ratings["domain"] == source_domain].copy()
         src_ratings["_uid"] = src_ratings["user_id"].map(lambda x: user_to_idx.get(normalize_id(x)))
         src_ratings["_iid"] = src_ratings["item_id"].map(lambda x: item_to_idx.get(normalize_id(x)))
         src_ratings = src_ratings.dropna(subset=["_uid", "_iid"])
-        src_ratings["_uid"] = src_ratings["_uid"].astype(int)
-        src_ratings["_iid"] = src_ratings["_iid"].astype(int)
+        src_ratings[["_uid", "_iid"]] = src_ratings[["_uid", "_iid"]].astype(int)
 
         # Game interaction counts per user for blend weight
-        tgt_ratings = ratings[ratings["domain"] == target_domain].copy()
-        tgt_ratings["_uid"] = tgt_ratings["user_id"].map(lambda x: user_to_idx.get(normalize_id(x)))
-        tgt_ratings = tgt_ratings.dropna(subset=["_uid"])
-        game_counts = tgt_ratings.groupby(tgt_ratings["_uid"].astype(int)).size().to_dict()
+        tgt_uid = ratings[ratings["domain"] == target_domain]["user_id"].map(
+            lambda x: user_to_idx.get(normalize_id(x)))
+        tgt_uid = tgt_uid.dropna().astype(int)
+        game_counts = tgt_uid.value_counts().to_dict()
 
         # Build per-user preference vector = mean of source item embeddings for
         # movies the user rated. This captures the user's movie taste as a dense
@@ -202,27 +197,28 @@ class PTUPCDRWrapper:
         #   k=1: 50/50 blend
         #   k→∞: converges to target MF embedding (movies become irrelevant)
         tgt_user_np = tgt_user_emb_all.detach().numpy()
-        final_user_emb = np.zeros((n_users, d), dtype=np.float32)
-        for our_idx in range(n_users):
-            rb_u = self._rb_users[our_idx]
-            if rb_u == 0:  # unmapped user (PAD token)
-                continue
-            k = game_counts.get(our_idx, 0)
-            if k == 0 or rb_u >= target_n:
-                # Pure cold-start or source-only user: rely entirely on mapped preference
-                final_user_emb[our_idx] = mapped_np[our_idx]
-            else:
-                w = 1.0 / (1.0 + k)
-                final_user_emb[our_idx] = w * mapped_np[our_idx] + (1 - w) * tgt_user_np[rb_u]
+        rb_u_arr = self._rb_users
+        k_arr = np.zeros(n_users, dtype=np.float32)
+        for u_idx, c in game_counts.items():
+            k_arr[u_idx] = c
 
-        # Target item embeddings
+        has_user = rb_u_arr > 0
+        blend_mask = has_user & (k_arr > 0) & (rb_u_arr < target_n)
+        mapped_only_mask = has_user & ~blend_mask
+
+        final_user_emb = np.zeros((n_users, d), dtype=np.float32)
+        final_user_emb[mapped_only_mask] = mapped_np[mapped_only_mask]
+        w = (1.0 / (1.0 + k_arr[blend_mask]))[:, None]
+        final_user_emb[blend_mask] = (
+            w * mapped_np[blend_mask]
+            + (1 - w) * tgt_user_np[rb_u_arr[blend_mask]]
+        )
+
+        # Target item embeddings (source items aren't scored)
         tgt_item_np = tgt_item_emb_all.detach().numpy()
+        valid_items = (self._rb_items > 0) & (self._rb_items < target_n)
         final_item_emb = np.zeros((len(item_to_idx), d), dtype=np.float32)
-        valid_items = np.zeros(len(item_to_idx), dtype=bool)
-        for our_i, rb_i in enumerate(self._rb_items):
-            if rb_i > 0 and rb_i < target_n:
-                final_item_emb[our_i] = tgt_item_np[rb_i]
-                valid_items[our_i] = True
+        final_item_emb[valid_items] = tgt_item_np[self._rb_items[valid_items]]
 
         self.user_embeddings = final_user_emb
         self.item_embeddings = final_item_emb
@@ -237,17 +233,14 @@ class PTUPCDRWrapper:
                     self._valid_users.sum(), n_users, valid_items.sum(), len(item_to_idx), train_time)
         return {"train_time": train_time}
 
-    def predict(self, user_idx: int, item_indices: np.ndarray | None = None) -> np.ndarray:
+    def predict(self, user_idx: int) -> np.ndarray:
         if self.user_embeddings is None:
             raise ValueError("Model not trained yet")
         if not self._valid_users[user_idx]:
-            n = self.num_items if item_indices is None else len(item_indices)
-            return np.full(n, -np.inf, dtype=np.float64)
+            return np.full(self.num_items, -np.inf, dtype=np.float64)
         user_emb = self.user_embeddings[user_idx]
-        items = self.item_embeddings if item_indices is None else self.item_embeddings[item_indices]
-        scores = (items @ user_emb).astype(np.float64)
-        valid = self._valid_items if item_indices is None else self._valid_items[item_indices]
-        scores[~valid] = -np.inf
+        scores = (self.item_embeddings @ user_emb).astype(np.float64)
+        scores[~self._valid_items] = -np.inf
         return scores
 
     def get_user_embeddings(self) -> np.ndarray:
