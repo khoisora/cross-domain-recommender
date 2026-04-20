@@ -21,8 +21,6 @@ COPY backend/ backend/
 COPY frontend_jquery/ frontend_jquery/
 COPY ml/models/ ml/models/
 COPY ml/evaluation/ ml/evaluation/
-COPY ml/data/data_splitter.py ml/data/data_splitter.py
-COPY ml/data/dataset.py ml/data/dataset.py
 COPY ml/data/__init__.py ml/data/__init__.py
 COPY ml/scripts/benchmarks/benchmark_common.py ml/scripts/benchmarks/benchmark_common.py
 COPY ml/scripts/benchmarks/cooc_rerank.py ml/scripts/benchmarks/cooc_rerank.py

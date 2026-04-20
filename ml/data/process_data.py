@@ -26,10 +26,7 @@ from collections.abc import Iterator
 
 import pandas as pd
 
-try:
-    from .item_dedup import deduplicate_dataset
-except ImportError:
-    from ml.data.item_dedup import deduplicate_dataset
+from ml.data.item_dedup import deduplicate_dataset
 
 logger = logging.getLogger(__name__)
 
