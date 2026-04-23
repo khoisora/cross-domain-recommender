@@ -25,7 +25,6 @@ from ml.scripts.benchmarks.benchmark_common import (
     load_cross_domain_split, POSITIVE_THRESHOLD, DATA_DIR,
 )
 from ml.models.lightgcn import LightGCN
-from ml.models.ncf import NCF
 from ml.models.emcdr import EMCDRWrapper
 from ml.models.ptupcdr import PTUPCDRWrapper
 from ml.models.sbert_model import SBERTModel
@@ -135,19 +134,6 @@ def export_lightgcn(data_sd) -> None:
 
     save_npy("lightgcn_user", model.get_user_embeddings())
     save_npy("lightgcn_item", model.get_item_embeddings())
-
-
-def export_ncf(data_sd) -> None:
-    """Train NCF and export embeddings."""
-    t0 = time.time()
-    model = NCF(data_sd.num_users, data_sd.num_items, embedding_dim=64, device="cpu")
-    model.fit(data_sd.target_train, data_sd.user_to_idx, data_sd.item_to_idx,
-              epochs=150, lr=0.001, reg_lambda=0.001, batch_size=4096,
-              positive_threshold=POSITIVE_THRESHOLD)
-    logger.info("NCF trained in %.1fs", time.time() - t0)
-
-    save_npy("ncf_user", model.get_user_embeddings())
-    save_npy("ncf_item", model.get_item_embeddings())
 
 
 def export_emcdr(data_cd) -> None:
@@ -324,7 +310,6 @@ def main() -> None:
 
     # Export model embeddings
     export_lightgcn(data_sd)
-    export_ncf(data_sd)
     export_emcdr(data_cd)
     export_ptupcdr(data_cd)
     export_sbert(data_cd)

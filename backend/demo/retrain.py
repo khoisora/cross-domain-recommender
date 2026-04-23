@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
 
 import numpy as np
 
@@ -25,12 +24,6 @@ logger = logging.getLogger(__name__)
 
 _retrain_thread: threading.Thread | None = None
 _stop_event = threading.Event()
-_last_retrain: dict | None = None
-
-
-def get_last_retrain() -> dict | None:
-    """Return info about the last successful retrain."""
-    return _last_retrain
 
 
 def start_retrain_scheduler(interval_seconds: int = 3600) -> None:
@@ -72,7 +65,6 @@ def _retrain_loop(interval: int) -> None:
 
 def _run_retrain() -> None:
     """Execute one retrain cycle: rebuild LightGCN from current ratings."""
-    global _last_retrain
     from backend.demo.store import DemoStore
 
     store = DemoStore.get()
@@ -132,12 +124,6 @@ def _run_retrain() -> None:
         store.lgcn_item = new_item
 
         elapsed = time.time() - t0
-        _last_retrain = {
-            "timestamp": datetime.now().isoformat(),
-            "elapsed_s": round(elapsed, 1),
-            "n_interactions": len(rows),
-            "models": ["LightGCN"],
-        }
         logger.info(
             "=== Retrain complete: LightGCN updated in %.1fs (%d interactions) ===",
             elapsed, len(rows),
@@ -147,9 +133,3 @@ def _run_retrain() -> None:
         logger.warning("Retrain skipped (missing dependency): %s", e)
     except Exception:
         logger.exception("Retrain error")
-
-
-def run_retrain_now() -> dict:
-    """Trigger an immediate retrain (called from API endpoint)."""
-    _run_retrain()
-    return _last_retrain or {"status": "no retrain executed"}

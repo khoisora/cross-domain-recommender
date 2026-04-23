@@ -26,7 +26,7 @@ import numpy as np
 from backend.demo.store import DemoStore
 from backend.demo.recommender import HybridRecommender
 from backend.demo.database import DemoDB
-from backend.demo.retrain import start_retrain_scheduler, stop_retrain_scheduler, run_retrain_now, get_last_retrain
+from backend.demo.retrain import start_retrain_scheduler, stop_retrain_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +66,17 @@ class RecommendationRow(BaseModel):
     model_tag: str = ""
     items: list[ItemOut]
 
+class SegmentInfo(BaseModel):
+    segment: str
+    explainer: str
+    game_count: int
+    movie_count: int
+
+
 class RecommendationResponse(BaseModel):
     user_id: int
     user_name: str
+    segment: SegmentInfo
     rows: list[RecommendationRow]
 
 class RatingRequest(BaseModel):
@@ -253,41 +261,6 @@ async def health():
     return {"status": "ok", "loaded": _store().loaded}
 
 
-@app.get("/api/users", response_model=list[SampleUser])
-async def list_users():
-    s = _store()
-    users = []
-    for u in s.sample_users:
-        group = _classify_user(u, s)
-        users.append(SampleUser(
-            id=u["id"],
-            external_id=u["external_id"],
-            name=u.get("name", ""),
-            avatar=u.get("avatar", ""),
-            taste_summary=u.get("taste_summary", ""),
-            total_ratings=u.get("total_ratings", 0),
-            avg_rating=u.get("avg_rating", 0.0),
-            is_sample=True,
-            group=group,
-        ))
-    # Custom users from DB
-    for row in _db().list_users():
-        if row.get("is_sample"):
-            continue
-        users.append(SampleUser(
-            id=row["id"],
-            external_id=row["external_id"],
-            name=row["name"],
-            avatar=row.get("avatar", ""),
-            taste_summary=row.get("taste_summary", ""),
-            total_ratings=_db().get_user_rating_count(row["id"]),
-            avg_rating=0.0,
-            is_sample=False,
-            group="new_user",
-        ))
-    return users
-
-
 @app.get("/api/user-groups", response_model=UserGroupResponse)
 async def get_user_groups():
     """Get users organized by group for the home page."""
@@ -358,25 +331,12 @@ async def get_recommendations(user_id: int):
     user = _resolve_user(user_id)
     rec = _recommender()
     rows = rec.recommend_rows(user["external_id"], k_per_row=15)
-    # Add model_tag to each row
-    model_tags = {
-        "lightgcn_cooc": "LightGCN + Co-occurrence",
-        "cdr_transfer": "PTUPCDR / EMCDR",
-        "cooc": "Co-occurrence Reranking",
-        "sbert_games": "SBERT (all-MiniLM-L6-v2)",
-        "sbert_movies": "SBERT (all-MiniLM-L6-v2)",
-        "lightgcn_movies": "LightGCN (Movie Domain)",
-        "reverse_cooc": "Reverse Co-occurrence",
-        "popular_games": "Popularity Baseline",
-        "popular_movies": "Popularity Baseline",
-    }
+    segment = rec.segment_info(user["external_id"])
     return RecommendationResponse(
         user_id=user_id,
         user_name=user.get("name", ""),
-        rows=[RecommendationRow(
-            model_tag=model_tags.get(r["key"], r["key"]),
-            **r
-        ) for r in rows],
+        segment=SegmentInfo(**segment),
+        rows=[RecommendationRow(**r) for r in rows],
     )
 
 
@@ -494,20 +454,6 @@ async def get_item(external_id: str, user_id: int | None = Query(None)):
         similar_games=similar_games,
         similar_movies=similar_movies,
     )
-
-
-@app.post("/api/retrain")
-async def trigger_retrain():
-    """Manually trigger model retraining. Also runs on hourly schedule."""
-    result = run_retrain_now()
-    return result
-
-
-@app.get("/api/retrain/status")
-async def retrain_status():
-    """Check last retrain status."""
-    last = get_last_retrain()
-    return last or {"status": "no retrain yet", "scheduled": "hourly"}
 
 
 @app.post("/api/ratings", response_model=RatingResponse)

@@ -1,7 +1,7 @@
 """In-memory artifact store for the demo portal.
 
 Loads precomputed embeddings from artifacts/demo/:
-  Single-domain (game items only): LightGCN, NCF
+  Single-domain (game items only): LightGCN
   Cross-domain (all items): EMCDR, PTUPCDR, SBERT
   Co-occurrence: movie→game behavioral associations
 """
@@ -82,12 +82,6 @@ class DemoStore:
         # Single-domain (game-only item space)
         self.lgcn_user: np.ndarray = np.load(DEMO_DIR / "lightgcn_user.npy")
         self.lgcn_item: np.ndarray = np.load(DEMO_DIR / "lightgcn_item.npy")
-
-        self.ncf_user: np.ndarray | None = None
-        self.ncf_item: np.ndarray | None = None
-        if (DEMO_DIR / "ncf_user.npy").exists():
-            self.ncf_user = np.load(DEMO_DIR / "ncf_user.npy")
-            self.ncf_item = np.load(DEMO_DIR / "ncf_item.npy")
 
         # Cross-domain (unified item space)
         self.emcdr_user: np.ndarray | None = None

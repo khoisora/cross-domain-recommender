@@ -152,15 +152,6 @@ class DemoDB:
         """, (user_id, item_idx, item_id, rating))
         self.conn.commit()
 
-    def get_user_ratings(self, user_id: int) -> list[dict]:
-        """Get all ratings for a user, ordered by most recent."""
-        cur = self.conn.cursor()
-        cur.execute("""
-            SELECT item_idx, item_id, rating, created_at
-            FROM ratings WHERE user_id = ? ORDER BY created_at DESC
-        """, (user_id,))
-        return [dict(r) for r in cur.fetchall()]
-
     def get_user_rating_for_item(self, user_id: int, item_idx: int) -> float | None:
         """Get a specific user's rating for an item."""
         cur = self.conn.cursor()
@@ -186,25 +177,3 @@ class DemoDB:
         """)
         return [dict(r) for r in cur.fetchall()]
 
-    def seed_ratings_from_artifacts(self, sample_users: list[dict], item_to_idx: dict[str, int]) -> None:
-        """Seed ratings from sample user artifacts (only if not already seeded)."""
-        cur = self.conn.cursor()
-        cur.execute("SELECT COUNT(*) as cnt FROM ratings WHERE user_id <= ?", (len(sample_users),))
-        existing = cur.fetchone()["cnt"]
-        if existing > 0:
-            logger.info("Ratings already seeded (%d existing), skipping", existing)
-            return
-
-        count = 0
-        for u in sample_users:
-            for r in u.get("ratings", []):
-                ext_id = r["item_id"]
-                idx = item_to_idx.get(ext_id)
-                if idx is not None:
-                    cur.execute("""
-                        INSERT OR IGNORE INTO ratings (user_id, item_idx, item_id, rating)
-                        VALUES (?, ?, ?, ?)
-                    """, (u["id"], idx, ext_id, r["rating"]))
-                    count += 1
-        self.conn.commit()
-        logger.info("Seeded %d ratings from sample users", count)
