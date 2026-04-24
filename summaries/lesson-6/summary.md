@@ -2,7 +2,7 @@
 
 **Claim**: When all game interactions are hidden for a subset of users during training, CDR outperforms single-domain models by 2–5× on that subset.
 
-**Result**: Confirmed. EMCDR and PTUPCDR achieve Recall@10=0.030, ~4× better than LightGCN (0.008) and infinitely better than MF-BPR (0.000). Popularity is the strongest baseline (0.0365) — cold users tend to pick well-known first games. CDR mapping models (EMCDR, PTUPCDR) match Popularity, which is the correct regime for cold-start: cross-domain signal is useful but doesn't yet beat aggregated popularity.
+**Result**: Confirmed. All three CDR models outperform single-domain baselines: EMCDR (0.030) and PTUPCDR (0.031) achieve ~4× over LightGCN (0.008); CMF reaches 0.021 (2.6×) after hyperparameter re-tuning (α=0.05, emb=96, no regularisation). Popularity is the strongest baseline (0.0365) — cold users tend to pick well-known first games. CDR mapping models match Popularity, which is the correct regime for cold-start: cross-domain signal is useful but doesn't yet beat aggregated popularity.
 
 ---
 
@@ -38,11 +38,12 @@
 | **Popularity** | Baseline | **0.0365** | **0.0197** | 0.5265 | 0.2345 |
 | PTUPCDR | Personalized mapping (CDR) | 0.0305 | 0.0171 | 0.4970 | 0.2169 |
 | EMCDR | Mapping (CDR) | 0.0300 | 0.0174 | 0.4980 | 0.2198 |
+| CMF | Joint MF (CDR) | 0.0210 | 0.0112 | 0.2870 | 0.1306 |
 | LightGCN | Graph (single-domain) | 0.0080 | 0.0029 | 0.1770 | 0.0743 |
 | NCF | Neural (single-domain) | 0.0020 | 0.0006 | — | — |
 | MF-BPR | MF (single-domain) | 0.0000 | 0.0000 | — | — |
 
-*Note: NCF and CMF sampled metrics are unreliable for cold users — when a model assigns uniform scores (no game history), the positive item wins by sort tie-break, inflating HR@10 to ~1.0. Full-rank metrics are reliable.*
+*Note: CMF was re-tuned with α=0.05, emb=96, 100 epochs, no regularisation (originally scored 0.001 due to weight decay crushing embeddings). NCF sampled metrics are unreliable for cold users — uniform scores inflate HR@10 via sort tie-break.*
 
 ### CDR vs single-domain gap (Recall@10)
 
@@ -51,19 +52,20 @@
 | Popularity | 0.0365 | 4.6× |
 | PTUPCDR | 0.0305 | 3.8× |
 | EMCDR | 0.0300 | 3.8× |
+| CMF | 0.0210 | 2.6× |
 | LightGCN | 0.0080 | 1× (baseline) |
 | NCF | 0.0020 | 0.25× |
 | MF-BPR | 0.0000 | — |
 
 ## Key takeaways
 
-1. **Mapping-based CDR delivers 4× gain on cold users**: EMCDR (0.030) and PTUPCDR (0.031) both achieve ~4× over LightGCN (0.008). This directly justifies the routing rule: route users with no game history to CDR models.
+1. **All CDR models deliver meaningful cold-start transfer**: EMCDR (0.030) and PTUPCDR (0.031) achieve ~4× over LightGCN (0.008); CMF reaches 0.021 (2.6×) after re-tuning. CMF's original score was 0.001 — weight decay was crushing the shared embeddings, making scores near-uniform. Fixing α=0.05 and removing regularisation recovered proper transfer.
 
-2. **Popularity is surprisingly competitive** (0.0365): First-game choice is often a well-known title (popular games = lower discovery risk). CDR mapping models (0.030) don't yet beat popularity — they provide complementary personalization signal from movie preferences.
+2. **Popularity is surprisingly competitive** (0.0365): First-game choice is often a well-known title (popular games = lower discovery risk). CDR mapping models (0.021–0.030) don't yet beat popularity — they provide complementary personalization signal from movie preferences.
 
 3. **Single-domain models collapse completely**: MF-BPR=0.000, NCF≈0.002. With no game training data for cold users, these models can only output random or uniform scores. This proves the need for CDR in the cold-start regime.
 
-5. **The routing rule is justified**: Users with ≥3 games → LightGCN (Lesson 2–4 evidence). Users with 0 games + rich movies → EMCDR/PTUPCDR or Popularity blend. This lesson demonstrates the cold-start half of the routing rule.
+4. **The routing rule is justified**: Users with ≥3 games → LightGCN (Lesson 2–4 evidence). Users with 0 games + rich movies → EMCDR/PTUPCDR or Popularity blend. CMF is a viable fallback but the weakest CDR option. This lesson demonstrates the cold-start half of the routing rule.
 
 ## Benchmark plots
 
