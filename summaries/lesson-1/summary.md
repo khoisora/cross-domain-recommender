@@ -20,6 +20,20 @@
 
 ## Dataset Characteristics
 
+### Original Amazon 2023 dataset (before sampling)
+
+| Property | Value |
+|----------|-------|
+| Total users | 3,690,788 |
+| Movie ratings | 6,770,775 |
+| Game ratings | 1,394,811 |
+| Total ratings | 8,165,586 |
+| Movie items | 53,383 (k-core >= 20) |
+| Game items | 14,502 (k-core >= 10) |
+| Overlap users | 212,299 (5.8%) |
+
+### Lesson 1 dataset (sampled to ~1M users)
+
 | Property | Value |
 |----------|-------|
 | Domain pair | movie_game |

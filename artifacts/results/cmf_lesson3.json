@@ -1,97 +1,65 @@
 {
   "model": "CMF",
   "lesson": 3,
-  "description": "CMF cross-domain LLO, L3 overlap dataset, emb=96",
-  "time_completed": "2026-04-07T15:35:11.983825",
-  "train_time_s": 0,
+  "description": "RecBole-CDR CMF, emb=96, epochs=100, lr=0.0005, alpha=0.05",
+  "time_completed": "2026-04-25T11:10:40.141850",
+  "train_time_s": 25.708024740219116,
   "dataset_info": {
-    "domain_pair": "movie_game_overlap",
     "cohort_filter": "users >= 10 total interactions, overlap users (movies >= 5, games >= 1)",
     "n_users": 19880,
     "n_movie_interactions": 430736,
     "n_game_interactions": 87613,
     "split": "leave-last-out on games"
   },
-  "recall@10": 0.0395,
-  "ndcg@10": 0.022003396616636705,
+  "recall@10": 0.041,
+  "ndcg@10": 0.021000469400287842,
+  "hit_rate@10": 0.041,
   "subgroups": {
     "super_cold_users": {
-      "recall@10": 0.018425460636515914,
-      "ndcg@10": 0.011000558712300034
+      "recall@10": 0.011725293132328308,
+      "ndcg@10": 0.004549250562331617,
+      "hit_rate@10": 0.011725293132328308
     },
     "one_shot_target_user": {
-      "recall@10": 0.0926517571884984,
-      "ndcg@10": 0.053844173234453487
+      "recall@10": 0.08945686900958466,
+      "ndcg@10": 0.05213767536984502,
+      "hit_rate@10": 0.08945686900958466
     },
     "one_shot_unpopular_target_user": {
-      "recall@10": 0.014285714285714285,
-      "ndcg@10": 0.005526468674779166
+      "recall@10": 0.0,
+      "ndcg@10": 0.0,
+      "hit_rate@10": 0.0
     },
     "high_source_low_target": {
-      "recall@10": 0.051233396584440226,
-      "ndcg@10": 0.02820105090261113
+      "recall@10": 0.03984819734345351,
+      "ndcg@10": 0.020686473545976466,
+      "hit_rate@10": 0.03984819734345351
     },
     "high_source_unpopular_low_target": {
       "recall@10": 0.0,
-      "ndcg@10": 0.0
+      "ndcg@10": 0.0,
+      "hit_rate@10": 0.0
     },
     "movie_heavy": {
-      "recall@10": 0.034161490683229816,
-      "ndcg@10": 0.01665748535586744
+      "recall@10": 0.049689440993788817,
+      "ndcg@10": 0.021753225143232007,
+      "hit_rate@10": 0.049689440993788817
     },
     "balanced": {
-      "recall@10": 0.04392764857881137,
-      "ndcg@10": 0.0243151125279971
+      "recall@10": 0.04909560723514212,
+      "ndcg@10": 0.02493213974158154,
+      "hit_rate@10": 0.04909560723514212
     },
     "game_heavy": {
-      "recall@10": 0.019230769230769232,
-      "ndcg@10": 0.019230769230769232
+      "recall@10": 0.038461538461538464,
+      "ndcg@10": 0.020415505993170206,
+      "hit_rate@10": 0.038461538461538464
     },
     "sparse_target": {
-      "recall@10": 0.03474903474903475,
-      "ndcg@10": 0.017087729032770713
+      "recall@10": 0.03861003861003861,
+      "ndcg@10": 0.020274366549593054,
+      "hit_rate@10": 0.03861003861003861
     }
   },
-  "n_eval_users": 2000,
-  "sampled_hr@10": 0.3515,
-  "sampled_ndcg@10": 0.162427316615127,
-  "sampled_subgroups": {
-    "super_cold_users": {
-      "sampled_hr@10": 0.3165829145728643,
-      "sampled_ndcg@10": 0.139185890875655
-    },
-    "one_shot_target_user": {
-      "sampled_hr@10": 0.40894568690095845,
-      "sampled_ndcg@10": 0.20180588616044393
-    },
-    "one_shot_unpopular_target_user": {
-      "sampled_hr@10": 0.22857142857142856,
-      "sampled_ndcg@10": 0.09717659062731593
-    },
-    "high_source_low_target": {
-      "sampled_hr@10": 0.32637571157495254,
-      "sampled_ndcg@10": 0.15251473035089944
-    },
-    "high_source_unpopular_low_target": {
-      "sampled_hr@10": 0.21052631578947367,
-      "sampled_ndcg@10": 0.08253531373099776
-    },
-    "movie_heavy": {
-      "sampled_hr@10": 0.33540372670807456,
-      "sampled_ndcg@10": 0.15343578272722508
-    },
-    "balanced": {
-      "sampled_hr@10": 0.4108527131782946,
-      "sampled_ndcg@10": 0.1912422726092341
-    },
-    "game_heavy": {
-      "sampled_hr@10": 0.38461538461538464,
-      "sampled_ndcg@10": 0.19212580777943705
-    },
-    "sparse_target": {
-      "sampled_hr@10": 0.3204633204633205,
-      "sampled_ndcg@10": 0.1482062900497532
-    }
-  },
-  "n_sampled_users": 2000
+  "n_eval_users": 2000
 }
