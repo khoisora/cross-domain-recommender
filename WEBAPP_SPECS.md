@@ -57,17 +57,19 @@ Background Retrain Scheduler
 | Hero section | CrossRec branding with tagline |
 | Create user form | Name input only (no password) → creates new user → navigates to recs with popularity-based recommendations |
 | Divider | "— or pick a sample user —" |
-| CDR group tabs | 4 tabs: Cold Start, 1-Shot Target, Few Target, Balanced |
+| CDR group tabs | 4 tabs: Cold Start, 1-Shot Target, Few Target, Balanced (used as user-pickers; routing collapses to two lanes — see below) |
 | User cards (up to 30 per group) | Avatar, name, taste summary, total rating count |
 
 **User Groups (CDR-relevant classification)**:
 
 | Group | Definition | Recommendation Strategy |
 |---|---|---|
-| Cold Start | 0 game ratings | EMCDR+cooc cold-start path — pure transfer from movie history |
-| 1-Shot Target | Exactly 1 game rating + movies | CDR blends movie preference with minimal game signal |
-| Few Target | 2-3 game ratings + movies | CDR models blend transferred preferences with sparse game history |
-| Balanced | 4+ game ratings | Full pipeline: LightGCN+cooc, CDR, SBERT, popularity |
+| Cold Start | 0 game ratings | **EMCDR + cooc** cold-start lane — pure transfer from movie history |
+| 1-Shot Target | Exactly 1 game rating + movies | **LightGCN + cooc** warm lane — graph propagation activates as soon as one game edge exists |
+| Few Target | 2-3 game ratings + movies | **LightGCN + cooc** warm lane |
+| Balanced | 4+ game ratings | **LightGCN + cooc** warm lane — full pipeline including SBERT side-row and popularity floor |
+
+The four group tabs remain in the user picker so demos can show how the same routing rule plays out across different history depths, but the routing decision itself is binary: 0 games → EMCDR; ≥ 1 game → LightGCN.
 
 **New User Flow**:
 1. User types a name → clicks "Start" (or presses Enter)
@@ -86,8 +88,8 @@ Background Retrain Scheduler
 
 | Row | Model | Title | Refresh Speed |
 |---|---|---|---|
-| 1 | LightGCN + cooc | "Top Picks for You" | Batch (hourly retrain) |
-| 2 | PTUPCDR or EMCDR | "Based on Your Movie Taste" | Batch |
+| 1 | LightGCN + cooc (warm) **or** EMCDR + cooc (cold-start) | "Top Picks for You" | Batch (hourly retrain) |
+| 2 | EMCDR + cooc | "Based on Your Movie Taste" — only shown to cold-start users (0 games); hidden for warm users since Row 1 already covers them | Batch |
 | 3 | Cooc standalone | "Players Who Watched Your Movies Also Played" | **Instant** |
 | 4 | SBERT (games) | "Games Similar in Theme" | **Real-time** (latest 5 ratings) |
 | 5 | SBERT (movies) | "Movies You Might Enjoy" | **Real-time** (latest 5 ratings) |
@@ -101,8 +103,9 @@ Background Retrain Scheduler
 - Uses only recent items so recommendations respond to current taste, not diluted by old ratings
 - After rating an item on the detail page, navigating back auto-reloads fresh recommendations
 
-**Row selection logic**:
-- Row 2 uses PTUPCDR if user has ≥1 game rating, EMCDR otherwise (cold-start)
+**Row selection logic** (two-lane routing):
+- Row 1 uses LightGCN+cooc for warm users (≥1 game rating) and EMCDR+cooc for cold-start users (0 games)
+- Row 2 (EMCDR+cooc, "Based on Your Movie Taste") is shown only to cold-start users; warm users skip it because Row 1 already serves the warm lane
 - Rows 3-5 read from `store.user_ratings` on every request — instant refresh
 - Row 1 uses embeddings updated hourly by background retrain scheduler
 - New users (zero ratings) only see rows 8-9 (popularity)
@@ -208,7 +211,7 @@ Background Retrain Scheduler
 | Signal | Mechanism | Latency |
 |---|---|---|
 | LightGCN (Rows 1, 6) | Full GCN retrain → hot-swap embeddings | ~40s (hourly) |
-| CDR (Row 2) | EMCDR/PTUPCDR retrain | ~60s |
+| CDR (Row 2) | EMCDR retrain (cold-start lane only) | ~60s |
 
 ---
 

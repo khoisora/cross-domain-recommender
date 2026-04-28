@@ -1,32 +1,18 @@
-"""Hybrid recommendation engine — one row per algorithm/strategy.
+"""Hybrid recommendation engine — games-only output.
 
-Lesson-aligned row layout:
-  Row 1 (primary)  — segment-routed headline pick:
-                       cold_start (0 games)   → EMCDR + cooc
-                       one_shot   (1-2 games) → PTUPCDR + cooc
-                       warm       (3+ games)  → LightGCN + cooc
-  Row 2 (secondary collaborative) — complementary contrast:
-                       cold_start → (skipped, Row 1 is already CDR)
-                       one_shot   → LightGCN + cooc
-                       warm       → EMCDR + cooc
-  Row 3 — Cooc standalone (instant-refresh explainable)
-  Row 4 — Hidden Gems (SBERT-CDR on low-popularity games + cooc)
-  Row 5 — SBERT movies (in-domain content similarity from movie profile)
-  Row 6 — LightGCN movies + reverse cooc
-  Row 7 — Reverse cooc standalone
-  Row 8 — Trending games
-  Row 9 — Trending movies
-
-Design rules from the lesson plan:
-  • Cooc is universal post-processing (Lesson 8) — applied to every ranking row
-    except Popularity (Lesson 8: cooc adds noise on a popularity baseline).
-  • Headline row routes by game-history depth (Lesson 6 routing rule) —
-    single-domain graph models collapse to popularity at true cold-start, so
-    EMCDR/PTUPCDR take the front page when game signal is missing.
-  • SBERT's validated strength is the long tail (Lesson 7), not overall ranking,
-    so the SBERT games row filters to bottom-50% popularity.
-  • SBERT profile uses movies only → pure SBERT-CDR (Lesson 7), not a mixed
-    profile that drifts back toward in-domain.
+Routing by game-history depth:
+  cold_start (0 games) — CDR models that transfer movie signal:
+    Row 1: CMF + cooc
+    Row 2: EMCDR + cooc
+    Row 3: PTUPCDR + cooc
+    Row 4: Cooc standalone
+    Row 5: SBERT-CDR hidden gems
+  warm (1+ games) — SDR models that use game history:
+    Row 1: LightGCN + cooc
+    Row 2: MF-BPR + cooc
+    Row 3: NeuMF + cooc
+    Row 4: Cooc standalone
+    Row 5: SBERT-CDR hidden gems
 """
 
 from __future__ import annotations
@@ -68,18 +54,14 @@ def _top_k_excluding(scores: np.ndarray, exclude: set[int], k: int) -> list[tupl
 
 
 def _classify_segment(game_count: int) -> str:
-    """Map user's game-rating count to the Lesson 6/8 routing segment."""
     if game_count == 0:
         return "cold_start"
-    if game_count <= 2:
-        return "one_shot"
     return "warm"
 
 
 SEGMENT_EXPLAINER = {
-    "cold_start": "Cold-start user (0 game ratings) — EMCDR maps your movie preferences into game space.",
-    "one_shot":   "One-shot user (1–2 games) — PTUPCDR's few-shot blend combines movie transfer with your limited game signal.",
-    "warm":       "Warm user (3+ games) — LightGCN graph convolution on your rating history, boosted by movie co-occurrence.",
+    "cold_start": "Cold-start user (0 game ratings) — CDR models transfer your movie preferences into game recommendations.",
+    "warm":       "Warm user (1+ game ratings) — single-domain models leverage your game history, boosted by movie co-occurrence.",
 }
 
 
@@ -104,9 +86,7 @@ class HybridRecommender:
             cd_user_idx=s.cd_user_to_idx.get(user_ext_id),
             rated_sd=s.get_user_rated_sd_indices(user_ext_id) | s.blocked_sd,
             rated_cd=s.get_user_rated_cd_indices(user_ext_id) | s.blocked_cd,
-            rated_movie_idx=self._rated_movie_indices(user_ext_id),
-            cooc_sd=s.compute_cooc_scores(user_ext_id),       # {game_ext_id: score}
-            rev_cooc=s.compute_reverse_cooc_scores(user_ext_id),  # {movie_ext_id: score}
+            cooc_sd=s.compute_cooc_scores(user_ext_id),
             seen_ext=set(),
             k=k_per_row,
             segment=segment,
@@ -114,48 +94,41 @@ class HybridRecommender:
 
         rows: list[dict] = []
 
-        # Row 1 — segment-routed primary pick
-        primary = self._primary_row(ctx)
-        if primary:
-            rows.append(primary)
-
-        # Row 2 — secondary collaborative contrast (per segment)
-        secondary = self._secondary_row(ctx)
-        if secondary:
-            rows.append(secondary)
-
-        # Row 3 — Cooc standalone (instant refresh, explainable)
-        row = self._cooc_standalone_row(ctx)
-        if row:
-            rows.append(row)
-
-        # Row 4 — Hidden Gems (SBERT-CDR on bottom-50% popularity + cooc)
-        row = self._hidden_gems_row(ctx)
-        if row:
-            rows.append(row)
-
-        # Row 5 — SBERT movies (in-domain content similarity)
-        row = self._sbert_movies_row(ctx)
-        if row:
-            rows.append(row)
-
-        # Row 6 — LightGCN movies + reverse cooc
-        row = self._lightgcn_movies_row(ctx)
-        if row:
-            rows.append(row)
-
-        # Row 7 — Reverse cooc standalone
-        row = self._reverse_cooc_row(ctx)
-        if row:
-            rows.append(row)
-
-        # Row 8 — Popular games (baseline; cooc intentionally NOT applied — L8)
-        rows.append(self._popular_games_row(ctx))
-
-        # Row 9 — Popular movies
-        row = self._popular_movies_row(ctx)
-        if row:
-            rows.append(row)
+        if segment == "cold_start":
+            # CDR path: transfer movie signal → game recommendations
+            row = self._cdr_games(c=ctx, model="cmf", title="Recommended for You")
+            if row:
+                rows.append(row)
+            row = self._cdr_games(c=ctx, model="emcdr", title="Based on Your Movie Taste")
+            if row:
+                rows.append(row)
+            row = self._cdr_games(c=ctx, model="ptupcdr", title="You Might Also Like")
+            if row:
+                rows.append(row)
+            row = self._cooc_standalone_row(ctx)
+            if row:
+                rows.append(row)
+            row = self._hidden_gems_row(ctx)
+            if row:
+                rows.append(row)
+        else:
+            # SDR path: leverage game history
+            row = self._lightgcn_games(ctx)
+            if row:
+                row["title"] = "Top Picks for You"
+                rows.append(row)
+            row = self._mf_bpr_games(ctx)
+            if row:
+                rows.append(row)
+            row = self._neumf_games(ctx)
+            if row:
+                rows.append(row)
+            row = self._cooc_standalone_row(ctx)
+            if row:
+                rows.append(row)
+            row = self._hidden_gems_row(ctx)
+            if row:
+                rows.append(row)
 
         return rows
 
@@ -172,43 +145,48 @@ class HybridRecommender:
             "movie_count": movie_count,
         }
 
-    # ── Row builders: collaborative primary/secondary ───────────────────
-
-    def _primary_row(self, c: _Context) -> dict | None:
-        if c.segment == "warm":
-            row = self._lightgcn_games(c)
-            if row:
-                row["title"] = "Top Picks for You"
-                row["subtitle"] = "LightGCN graph convolution + movie→game co-occurrence"
-                return row
-            # Warm user not in SD training — fall back to CDR
-            return self._cdr_games(c, "ptupcdr", title="Top Picks for You")
-        if c.segment == "one_shot":
-            return self._cdr_games(c, "ptupcdr", title="Top Picks for You")
-        return self._cdr_games(c, "emcdr", title="Top Picks for You")
-
-    def _secondary_row(self, c: _Context) -> dict | None:
-        if c.segment == "warm":
-            # Show pure cross-domain alternative for warm users
-            return self._cdr_games(c, "emcdr", title="Based on Your Movie Taste")
-        if c.segment == "one_shot":
-            # Contrast PTUPCDR headline with graph-based LightGCN
-            row = self._lightgcn_games(c)
-            if row:
-                row["title"] = "Graph-Based Collaborative Picks"
-                row["subtitle"] = "LightGCN on the rating graph (contrast to the few-shot CDR primary)"
-                return row
-            return None
-        return None  # cold_start: Row 1 is already EMCDR — skip duplicate
-
     # ── Individual model rows ───────────────────────────────────────────
+
+    def _resolve_sd_user_vec(self, c: _Context, user_emb: np.ndarray, item_emb: np.ndarray) -> np.ndarray | None:
+        """Trained user vector if known, else rating-weighted mean of rated game item vectors."""
+        if c.sd_user_idx is not None and c.sd_user_idx < user_emb.shape[0]:
+            return user_emb[c.sd_user_idx]
+        return self._foldin_user_vec(c, item_emb, space="sd")
+
+    def _resolve_cd_user_vec(self, c: _Context, user_emb: np.ndarray, item_emb: np.ndarray) -> np.ndarray | None:
+        """Trained user vector if known, else rating-weighted mean of rated item vectors (movies + games)."""
+        if c.cd_user_idx is not None and c.cd_user_idx < user_emb.shape[0]:
+            return user_emb[c.cd_user_idx]
+        return self._foldin_user_vec(c, item_emb, space="cd")
+
+    def _foldin_user_vec(self, c: _Context, item_emb: np.ndarray, space: str) -> np.ndarray | None:
+        s = c.store
+        idx_map = s.sd_item_to_idx if space == "sd" else s.cd_item_to_idx
+        ratings = s.user_ratings.get(c.user_ext_id, [])
+        profile = np.zeros(item_emb.shape[1], dtype=np.float32)
+        total_w = 0.0
+        for r in ratings:
+            if space == "sd" and r.get("domain") != "game":
+                continue
+            i = idx_map.get(r["item_id"])
+            if i is None or i >= item_emb.shape[0]:
+                continue
+            w = float(r.get("rating", 0)) / 5.0
+            if w <= 0:
+                continue
+            profile += item_emb[i] * w
+            total_w += w
+        if total_w < 1e-9:
+            return None
+        return profile / total_w
 
     def _lightgcn_games(self, c: _Context) -> dict | None:
         """LightGCN score over game catalog + cooc."""
         s = c.store
-        if c.sd_user_idx is None or c.sd_user_idx >= s.lgcn_user.shape[0]:
+        user_vec = self._resolve_sd_user_vec(c, s.lgcn_user, s.lgcn_item)
+        if user_vec is None:
             return None
-        scores = s.lgcn_item @ s.lgcn_user[c.sd_user_idx]
+        scores = s.lgcn_item @ user_vec
         self._apply_cooc_sd(scores, c.cooc_sd)
         norm = _normalise(scores)
         items = _top_k_excluding(norm, c.rated_sd, c.k + 10)
@@ -221,10 +199,56 @@ class HybridRecommender:
                                      "LightGCN graph score + movie→game co-occurrence"),
         }
 
-    def _cdr_games(self, c: _Context, model: str, title: str) -> dict | None:
-        """EMCDR or PTUPCDR score over game subset of CD catalog + cooc."""
+    def _mf_bpr_games(self, c: _Context) -> dict | None:
+        """MF-BPR score over game catalog + cooc."""
         s = c.store
-        if model == "ptupcdr":
+        if s.mf_bpr_user is None:
+            return None
+        user_vec = self._resolve_sd_user_vec(c, s.mf_bpr_user, s.mf_bpr_item)
+        if user_vec is None:
+            return None
+        scores = s.mf_bpr_item @ user_vec
+        self._apply_cooc_sd(scores, c.cooc_sd)
+        norm = _normalise(scores)
+        items = _top_k_excluding(norm, c.rated_sd, c.k + 10)
+        return {
+            "key": "mf_bpr",
+            "title": "You Might Also Like",
+            "subtitle": "Matrix Factorization with BPR pairwise ranking + co-occurrence",
+            "model_tag": "MF-BPR + Co-occurrence",
+            "items": self._enrich_sd(items, c.seen_ext, c.k,
+                                     "MF-BPR collaborative signal + movie→game co-occurrence"),
+        }
+
+    def _neumf_games(self, c: _Context) -> dict | None:
+        """NeuMF score over game catalog + cooc."""
+        s = c.store
+        if s.neumf_user is None:
+            return None
+        user_vec = self._resolve_sd_user_vec(c, s.neumf_user, s.neumf_item)
+        if user_vec is None:
+            return None
+        scores = s.neumf_item @ user_vec
+        self._apply_cooc_sd(scores, c.cooc_sd)
+        norm = _normalise(scores)
+        items = _top_k_excluding(norm, c.rated_sd, c.k + 10)
+        return {
+            "key": "neumf",
+            "title": "Neural Collaborative Picks",
+            "subtitle": "NeuMF deep collaborative filtering + co-occurrence",
+            "model_tag": "NeuMF + Co-occurrence",
+            "items": self._enrich_sd(items, c.seen_ext, c.k,
+                                     "NeuMF neural scoring + movie→game co-occurrence"),
+        }
+
+    def _cdr_games(self, c: _Context, model: str, title: str) -> dict | None:
+        """CMF, EMCDR, or PTUPCDR score over game subset of CD catalog + cooc."""
+        s = c.store
+        if model == "cmf":
+            user_emb, item_emb = s.cmf_user, s.cmf_item
+            label = "CMF"
+            subtitle = "Collective Matrix Factorization — shared user factors across movies & games + cooc"
+        elif model == "ptupcdr":
             user_emb, item_emb = s.ptupcdr_user, s.ptupcdr_item
             label = "PTUPCDR"
             subtitle = "Few-shot movie-to-game transfer via PTUPCDR hypernetwork + cooc"
@@ -232,16 +256,19 @@ class HybridRecommender:
             user_emb, item_emb = s.emcdr_user, s.emcdr_item
             label = "EMCDR"
             subtitle = "Global movie-to-game mapping via EMCDR + cooc"
-        if user_emb is None or c.cd_user_idx is None or c.cd_user_idx >= user_emb.shape[0]:
+        if user_emb is None:
+            return None
+        user_vec = self._resolve_cd_user_vec(c, user_emb, item_emb)
+        if user_vec is None:
             return None
 
-        scores = item_emb @ user_emb[c.cd_user_idx]
-        # Mask non-game items: CDR embeddings live in the unified (movie+game)
-        # space, but we only want to surface game recommendations here.
-        non_game_mask = np.ones(len(scores), dtype=bool)
-        non_game_mask[list(s.cd_game_indices)] = False
+        scores = item_emb @ user_vec
+        n_items = len(scores)
+        non_game_mask = np.ones(n_items, dtype=bool)
+        for gi in s.cd_game_indices:
+            if gi < n_items:
+                non_game_mask[gi] = False
         scores[non_game_mask] = -1e9
-        # Universal cooc post-processing (Lesson 8)
         self._apply_cooc_cd(scores, c.cooc_sd)
 
         norm = _normalise(scores)
@@ -325,132 +352,6 @@ class HybridRecommender:
                                      "Semantic match from your movies + co-occurrence lift"),
         }
 
-    def _sbert_movies_row(self, c: _Context) -> dict | None:
-        """In-domain SBERT on movies from the same movie profile."""
-        s = c.store
-        profile = self._movie_sbert_profile(c)
-        if profile is None:
-            return None
-        scores = s.content_emb @ profile
-        # Mask out games (keep only movies)
-        game_mask = np.zeros(len(scores), dtype=bool)
-        game_mask[list(s.cd_game_indices)] = True
-        scores[game_mask] = -1e9
-        norm = _normalise(scores)
-        items = _top_k_excluding(norm, c.rated_cd, c.k + 10)
-        if not items:
-            return None
-        return {
-            "key": "sbert_movies",
-            "title": "Movies Similar in Theme",
-            "subtitle": "In-domain SBERT content similarity to your latest movie ratings",
-            "model_tag": "SBERT (in-domain)",
-            "items": self._enrich_cd(items, c.seen_ext, c.k,
-                                     "Content similarity to your rated movies (SBERT)"),
-        }
-
-    def _lightgcn_movies_row(self, c: _Context) -> dict | None:
-        """Single-domain LightGCN on movies + reverse cooc (game→movie)."""
-        s = c.store
-        if s.lgcn_movie_user is None:
-            return None
-        mi = s.cd_user_to_idx.get(c.user_ext_id)
-        if mi is None or mi >= s.lgcn_movie_user.shape[0]:
-            return None
-        scores = s.lgcn_movie_item @ s.lgcn_movie_user[mi]
-        for ext_id, bonus in c.rev_cooc.items():
-            idx = s.movie_item_to_idx.get(ext_id)
-            if idx is not None and idx < len(scores):
-                scores[idx] += COOC_LAM * bonus
-        norm = _normalise(scores)
-        items = _top_k_excluding(norm, c.rated_movie_idx, c.k + 10)
-        enriched = self._enrich(items, c.seen_ext, c.k,
-                                "LightGCN on movie ratings + game→movie co-occurrence",
-                                s.movie_items_by_idx)
-        if not enriched:
-            return None
-        return {
-            "key": "lightgcn_movies",
-            "title": "Top Movie Picks",
-            "subtitle": "LightGCN on your movie history + game→movie reverse co-occurrence",
-            "model_tag": "LightGCN (movies) + Reverse Co-occurrence",
-            "items": enriched,
-        }
-
-    def _reverse_cooc_row(self, c: _Context) -> dict | None:
-        """Raw game→movie cooc from user's game history."""
-        s = c.store
-        if not c.rev_cooc:
-            return None
-        scores = np.zeros(len(s.movie_item_to_idx), dtype=np.float32)
-        for ext_id, bonus in c.rev_cooc.items():
-            idx = s.movie_item_to_idx.get(ext_id)
-            if idx is not None and idx < len(scores):
-                scores[idx] = bonus
-        norm = _normalise(scores)
-        items = _top_k_excluding(norm, c.rated_movie_idx, c.k + 10)
-        enriched = self._enrich(items, c.seen_ext, c.k,
-                                "Gamers who played your games also watched this movie",
-                                s.movie_items_by_idx)
-        if not enriched:
-            return None
-        return {
-            "key": "reverse_cooc",
-            "title": "Movies Fans of Your Games Also Watched",
-            "subtitle": "Reverse game→movie co-occurrence",
-            "model_tag": "Reverse Co-occurrence",
-            "items": enriched,
-        }
-
-    def _popular_games_row(self, c: _Context) -> dict:
-        """Popularity baseline — L8 shows cooc adds noise here, so leave it raw."""
-        s = c.store
-        popular = sorted(
-            [(it.get("sd_idx"), it.get("rating_count", 0))
-             for it in s.items_list
-             if it.get("domain") == "game" and it.get("sd_idx") is not None],
-            key=lambda x: -x[1],
-        )
-        pop_items = [(idx, float(cnt)) for idx, cnt in popular
-                     if idx not in c.rated_sd][:c.k * 3]
-        counts = np.array([v for _, v in pop_items], dtype=np.float32) if pop_items else np.zeros(1)
-        norm = _normalise(counts)
-        items = [(idx, float(norm[i])) for i, (idx, _) in enumerate(pop_items)]
-        return {
-            "key": "popular_games",
-            "title": "Trending Games",
-            "subtitle": "Most-rated games — a strong cold-start baseline (Lesson 6)",
-            "model_tag": "Popularity Baseline",
-            "items": self._enrich_sd(items, c.seen_ext, c.k, "Popular with many gamers"),
-        }
-
-    def _popular_movies_row(self, c: _Context) -> dict | None:
-        s = c.store
-        pop_movies = sorted(
-            [(s.movie_item_to_idx.get(it.get("external_id", "")), it.get("rating_count", 0))
-             for it in s.items_list
-             if it.get("domain") == "movie" and it.get("external_id") in s.movie_item_to_idx],
-            key=lambda x: -x[1],
-        )
-        pop_m_items = [(idx, float(cnt)) for idx, cnt in pop_movies
-                       if idx is not None and idx not in c.rated_movie_idx][:c.k * 3]
-        if not pop_m_items:
-            return None
-        counts = np.array([v for _, v in pop_m_items], dtype=np.float32)
-        norm = _normalise(counts)
-        items = [(idx, float(norm[i])) for i, (idx, _) in enumerate(pop_m_items)]
-        enriched = self._enrich(items, c.seen_ext, c.k, "Popular with many viewers",
-                                s.movie_items_by_idx)
-        if not enriched:
-            return None
-        return {
-            "key": "popular_movies",
-            "title": "Trending Movies",
-            "subtitle": "Most-rated movies in the catalog",
-            "model_tag": "Popularity Baseline",
-            "items": enriched,
-        }
-
     # ── Helpers ─────────────────────────────────────────────────────────
 
     def _movie_sbert_profile(self, c: _Context) -> np.ndarray | None:
@@ -481,14 +382,6 @@ class HybridRecommender:
         if norm < 1e-9:
             return None
         return (profile / norm).astype(np.float32)
-
-    def _rated_movie_indices(self, user_ext_id: str) -> set[int]:
-        s = self.store
-        return {
-            s.movie_item_to_idx[r["item_id"]]
-            for r in s.get_user_rated_items(user_ext_id)
-            if r.get("item_id") in s.movie_item_to_idx
-        }
 
     def _apply_cooc_sd(self, scores: np.ndarray, cooc: dict[str, float]) -> None:
         s = self.store
@@ -540,8 +433,8 @@ class _Context:
 
     __slots__ = (
         "store", "user_ext_id", "sd_user_idx", "cd_user_idx",
-        "rated_sd", "rated_cd", "rated_movie_idx",
-        "cooc_sd", "rev_cooc", "seen_ext", "k", "segment",
+        "rated_sd", "rated_cd",
+        "cooc_sd", "seen_ext", "k", "segment",
     )
 
     def __init__(self, **kwargs) -> None:

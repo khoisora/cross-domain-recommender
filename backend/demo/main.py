@@ -55,6 +55,7 @@ class ItemOut(BaseModel):
     description: str = ""
     avg_rating: float | None = None
     rating_count: int = 0
+    user_rating: float | None = None
     score: float = 0
     reason: str = ""
 
@@ -129,11 +130,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Seed lightweight users (≤30 ratings) from the ratings store into the DB
     # so all users shown on the home page are real DB users.
     _seed_lightweight_users(store, db)
-    # Restore runtime ratings from DB into in-memory store
+    # Restore runtime ratings from DB into in-memory store. Look up domain from
+    # the item catalog so segment classification, cooc, and SBERT profiling all
+    # work for restored runtime ratings.
     for r in db.get_all_runtime_ratings():
         existing = store.user_ratings.get(r["user_id"], [])
         if not any(x["item_id"] == r["item_id"] for x in existing):
-            store.add_rating(r["user_id"], r["item_id"], r["rating"])
+            meta = store.items_by_ext.get(r["item_id"], {})
+            store.add_rating(r["user_id"], r["item_id"], r["rating"],
+                             domain=meta.get("domain", ""))
     # Start hourly retrain scheduler (LightGCN re-trains with latest ratings)
     start_retrain_scheduler(interval_seconds=3600)
     logger.info("Retrain scheduler started (hourly)")
@@ -142,10 +147,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="CrossRec Demo", version="2.0.0", lifespan=lifespan)
 
+
+class _NoCacheStaticFiles(StaticFiles):
+    """StaticFiles that tells the browser never to cache — useful in dev so
+    edits to html/js/css land on the next reload without manual hard-refresh."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+
 # Serve jQuery frontend from /frontend_jquery/
 _JQUERY_DIR = Path(__file__).resolve().parent.parent.parent / "frontend_jquery"
 if _JQUERY_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_JQUERY_DIR)), name="static")
+    app.mount("/static", _NoCacheStaticFiles(directory=str(_JQUERY_DIR)), name="static")
 
 @app.get("/", include_in_schema=False)
 async def root_redirect():
@@ -170,7 +188,7 @@ def _seed_lightweight_users(store: DemoStore, db: DemoDB) -> None:
     full ratings store and persist them in SQLite.
     """
     # Seed enough users per CDR group to fill the home page
-    needed = {"cold_start": 30, "one_shot": 30, "few_target": 30, "balanced": 30}
+    needed = {"cold_start": 30, "few_target": 30, "balanced": 30}
     count = 0
     for ext_id, ratings in store.user_ratings.items():
         n = len(ratings)
@@ -180,8 +198,6 @@ def _seed_lightweight_users(store: DemoStore, db: DemoDB) -> None:
         games = sum(1 for r in ratings if r.get("domain") == "game")
         if games == 0:
             grp = "cold_start"
-        elif games == 1:
-            grp = "one_shot"
         elif games <= 3:
             grp = "few_target"
         else:
@@ -217,18 +233,15 @@ def _classify_user(user: dict, store: DemoStore) -> str:
     """Classify user into a CDR-relevant group for the home page.
 
     Groups reflect cross-domain cold-start severity:
-      cold_start: 0 game ratings — pure CDR transfer from movies
-      one_shot:   exactly 1 game rating + movies
-      few_target: 2-3 game ratings + movies
-      balanced:   4+ game ratings (warm user)
+      cold_start:  0 game ratings — pure CDR transfer from movies
+      few_target:  1-3 game ratings + movies
+      balanced:    4+ game ratings (warm user)
     """
     ext_id = user.get("external_id", "")
     ratings = store.user_ratings.get(ext_id, [])
     games = sum(1 for r in ratings if r.get("domain") == "game")
     if games == 0:
         return "cold_start"
-    if games == 1:
-        return "one_shot"
     if games <= 3:
         return "few_target"
     return "balanced"
@@ -266,7 +279,7 @@ async def get_user_groups():
     """Get users organized by group for the home page."""
     s = _store()
     groups: dict[str, list[SampleUser]] = {
-        "cold_start": [], "one_shot": [], "few_target": [], "balanced": [],
+        "cold_start": [], "few_target": [], "balanced": [], "new": [],
     }
     # Scan all DB users, filter to ≤30 ratings, classify by CDR group.
     # Lightweight users were seeded into DB at startup from the ratings store.
@@ -277,7 +290,7 @@ async def get_user_groups():
         n_ratings = len(ratings)
         if n_ratings == 0 or n_ratings > 30:
             continue
-        if all(len(v) >= 30 for v in groups.values()):
+        if all(len(v) >= 30 for v in (groups["cold_start"], groups["few_target"], groups["balanced"])):
             break
         u_dict = {"external_id": ext_id}
         group = _classify_user(u_dict, s)
@@ -291,6 +304,21 @@ async def get_user_groups():
             taste_summary=f"{movies} movies, {games} games",
             total_ratings=n_ratings,
             avg_rating=0.0, group=group,
+        ))
+
+    # "new" group — last 10 registered custom users, regardless of rating count
+    for row in db.list_recent_custom_users(limit=10):
+        ext_id = row["external_id"]
+        ratings = s.user_ratings.get(ext_id, [])
+        movies = sum(1 for r in ratings if r.get("domain") == "movie")
+        games = sum(1 for r in ratings if r.get("domain") == "game")
+        summary = f"{movies} movies, {games} games" if (movies or games) else "Just joined"
+        groups["new"].append(SampleUser(
+            id=row["id"], external_id=ext_id,
+            name=row["name"], avatar=row.get("avatar", "👤") or "👤",
+            taste_summary=summary,
+            total_ratings=len(ratings),
+            avg_rating=0.0, group="new",
         ))
     return UserGroupResponse(groups=groups)
 
@@ -345,6 +373,7 @@ async def search_items(
     q: str = Query("", min_length=0),
     limit: int = Query(20, ge=1, le=50),
     domain: str | None = Query(None),
+    user_id: int | None = Query(None),
 ):
     s = _store()
     if not q:
@@ -354,6 +383,16 @@ async def search_items(
     if domain:
         results = [it for it in results if it.get("domain") == domain]
     results = results[:limit]
+
+    user_rating_map: dict[str, float] = {}
+    if user_id is not None:
+        try:
+            user = _resolve_user(user_id)
+            for r in s.user_ratings.get(user["external_id"], []):
+                user_rating_map[r["item_id"]] = r["rating"]
+        except HTTPException:
+            pass
+
     items = [ItemOut(
         idx=it.get("idx", 0),
         external_id=it.get("external_id", ""),
@@ -363,6 +402,7 @@ async def search_items(
         description=(it.get("description") or "")[:150],
         avg_rating=it.get("avg_rating"),
         rating_count=it.get("rating_count") or 0,
+        user_rating=user_rating_map.get(it.get("external_id", "")),
     ) for it in results]
     return SearchResponse(items=items, total=len(items))
 
@@ -400,22 +440,15 @@ async def get_item(external_id: str, user_id: int | None = Query(None)):
         except Exception:
             pass
 
-    # SBERT similar items — split by domain (games + movies)
-    # Precomputed top-20 includes both domains; we also do a live query
-    # for the opposite domain to ensure cross-domain results
     similar_games: list[SimilarItem] = []
-    similar_movies: list[SimilarItem] = []
     cd_idx = meta.get("cd_idx")
     if cd_idx is not None and cd_idx < s.content_emb.shape[0]:
-        # Live cosine similarity for this item against all items
         item_vec = s.content_emb[cd_idx]
         norm = np.linalg.norm(item_vec)
         if norm > 0:
             item_vec = item_vec / norm
             all_scores = s.content_emb @ item_vec
-            # Get top 30 per domain
             top_indices = np.argsort(-all_scores)
-            seen = 0
             for si in top_indices:
                 si = int(si)
                 if si == cd_idx:
@@ -424,21 +457,17 @@ async def get_item(external_id: str, user_id: int | None = Query(None)):
                 if score < 0.1:
                     break
                 sim_meta = s.cd_items_by_idx.get(si, {})
-                if not sim_meta:
+                if not sim_meta or sim_meta.get("domain") != "game":
                     continue
-                item = SimilarItem(
+                similar_games.append(SimilarItem(
                     external_id=sim_meta.get("external_id", ""),
                     title=sim_meta.get("title", ""),
-                    domain=sim_meta.get("domain", ""),
+                    domain="game",
                     image_url=sim_meta.get("image_url") or "",
                     avg_rating=sim_meta.get("avg_rating"),
                     similarity=round(score, 3),
-                )
-                if sim_meta.get("domain") == "game" and len(similar_games) < 12:
-                    similar_games.append(item)
-                elif sim_meta.get("domain") == "movie" and len(similar_movies) < 12:
-                    similar_movies.append(item)
-                if len(similar_games) >= 12 and len(similar_movies) >= 12:
+                ))
+                if len(similar_games) >= 12:
                     break
 
     return ItemDetail(
@@ -452,7 +481,7 @@ async def get_item(external_id: str, user_id: int | None = Query(None)):
         rating_count=meta.get("rating_count") or 0,
         user_rating=user_rating,
         similar_games=similar_games,
-        similar_movies=similar_movies,
+        similar_movies=[],
     )
 
 

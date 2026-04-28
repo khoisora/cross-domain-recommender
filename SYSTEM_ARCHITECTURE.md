@@ -524,6 +524,6 @@ NewCrossDomainRecommenders/
 | **Reverse cooc for movies** | Rather than training a full movie→game CDR model in reverse, the game→movie cooc matrix provides meaningful movie recommendations with zero training cost. |
 | **Hourly retrain (not real-time)** | Full LightGCN retrain takes ~40s on 58K interactions. Real-time per-rating retraining is impractical. Cooc/SBERT fill the freshness gap between retrains. |
 | **external_id as canonical key** | Three index spaces (DB, SD, CD) create mapping complexity. Using the Amazon ASIN as the universal identifier eliminates off-by-one errors in item navigation. |
-| **User groups on home page** | Different groups activate different recommendation strategies (routing rule from Lesson 6). This makes the experimental findings directly interactive. |
+| **User groups on home page** | The four group tabs (Cold Start, 1-Shot, Few, Balanced) let users see how the simplified two-lane routing rule (0 games → EMCDR+cooc; ≥1 game → LightGCN+cooc) plays out across history depths — the experimental findings from Lessons 6 and 8 made directly interactive. |
 | **SBERT for both domains** | SBERT operates in a shared text space — "Halo" the game and "Halo" the movie are naturally close. No domain-specific training needed for cross-domain content matching. |
 | **9 rows (5 game + 4 movie)** | Each row demonstrates a different recommendation paradigm. Together they cover collaborative (LightGCN), cross-domain (CDR), content (SBERT), behavioral (cooc), and popularity — the full spectrum of our research. |

@@ -139,6 +139,22 @@ class DemoDB:
         cur.execute("SELECT * FROM users ORDER BY is_sample DESC, id ASC")
         return [dict(r) for r in cur.fetchall()]
 
+    def list_recent_custom_users(self, limit: int = 10) -> list[dict]:
+        """Most recently registered non-sample users (newest first), only those
+        registered on or after 2026-01-01."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT * FROM users
+            WHERE is_sample = 0
+              AND created_at >= strftime('%s', '2026-01-01')
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
     # ── Rating operations ───────────────────────────────────────────────
 
     def add_rating(self, user_id: int, item_idx: int, item_id: str, rating: float) -> None:
@@ -166,10 +182,14 @@ class DemoDB:
         return cur.fetchone()["cnt"]
 
     def get_all_runtime_ratings(self) -> list[dict]:
-        """Get all ratings not from artifact seeding (i.e. submitted at runtime)."""
+        """Get all ratings not from artifact seeding (i.e. submitted at runtime).
+
+        Returns rows keyed by the user's external_id under "user_id" so callers
+        can index in-memory stores that are keyed by external_id.
+        """
         cur = self.conn.cursor()
         cur.execute("""
-            SELECT r.user_id, u.external_id as user_id,
+            SELECT u.external_id AS user_id,
                    r.item_idx, r.item_id, r.rating, r.created_at
             FROM ratings r
             JOIN users u ON u.id = r.user_id

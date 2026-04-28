@@ -300,7 +300,7 @@ Popularity
 
 —
 
-**Lesson 6 narrative**: All three single-domain models (MF-BPR, NCF, LightGCN) fail on cold users — zero game edges → scores collapse to bias/popularity. All three CDR models (CMF, EMCDR, PTUPCDR) win — movie signal transfers through shared factors or learned mappings. Popularity is a surprisingly strong baseline at cold-start. This justifies a routing rule: no game history → CDR path.
+**Lesson 6 narrative**: All three single-domain models (MF-BPR, NCF, LightGCN) fail on cold users — zero game edges → scores collapse to bias/popularity. All three CDR models (CMF, EMCDR, PTUPCDR) win — movie signal transfers through shared factors or learned mappings. Popularity is a surprisingly strong baseline at cold-start. This justifies a routing rule: no game history → EMCDR path (the most robust CDR model at true cold-start).
 
 ---
 
@@ -603,7 +603,12 @@ Register filtered variant as `movie_game_filtered`. Reference `processed_transfe
 - **Personalized mapping CDR** (PTUPCDR): MoE captures user clusters, not item-level co-occurrence; cooc fills that gap.
 - **Popularity**: already a strong cold-start prior; popular games dominate co-occurrence counts, so the two signals are highly correlated — no new information.
 
-**Updated routing rule**: Cooc is added as universal post-processing to all routing paths. Cold-start preference updated: EMCDR+cooc preferred over PTUPCDR+cooc (EMCDR's global MLP works without game edges; PTUPCDR's few-shot blend requires game history to activate). Niche path updated: SBERT-CDR+cooc replaces SBERT-CDR alone.
+**Updated routing rule (simplified two-lane)**: Cooc is added as universal post-processing to every path. Routing collapses to two lanes based on game-history depth:
+
+- **0 games (cold-start) → EMCDR + cooc.** EMCDR's global MLP mapping works without target-side edges; outperforms PTUPCDR (whose few-shot blend requires game history) and LightGCN (which collapses to popularity/bias without target edges).
+- **≥ 1 game (warm) → LightGCN + cooc.** LightGCN dominates LLO at every overlap level (Lessons 2, 4); the cooc rerank fills the movie→game item-level gap that pure graph propagation misses.
+
+Niche-item override: SBERT-CDR + cooc remains available as a side path for the unpopular long tail (Lesson 7), routed by item popularity rather than user state.
 
 **Plot**: `--lesson 8` → two-panel bar chart: left = LLO base vs cooc per model, right = cold-start base vs cooc per model. Bars paired (base + cooc side by side per model). Annotation box shows lam value and cooc edge count.
 
@@ -619,35 +624,23 @@ Recommended model
 
 Justified by
 
-0 games, rich movies
+0 games (cold-start)
 
 **EMCDR + cooc** (popularity blend as floor)
 
-L6: EMCDR most robust at true cold-start (global MLP mapping works without game edges); PTUPCDR needs game history to activate few-shot blend. L8: cooc adds small additional boost (+2%)
+L6: EMCDR most robust at true cold-start (global MLP mapping works without game edges); PTUPCDR needs game history to activate few-shot blend; LightGCN collapses to popularity/bias without target edges. L8: cooc adds small additional boost (+2%).
 
-1–2 games, rich movies
-
-**PTUPCDR + cooc**
-
-L4, L6: few-shot blend activates once game edges exist. L8: cooc adds +13% on LLO
-
-3–9 games
+≥ 1 game (warm)
 
 **LightGCN + cooc**
 
-L2, L4: best LLO base model. L8: cooc +5%, fills movie→game gap graph alone misses
+L2, L4: LightGCN dominates LLO at every overlap level. L8: cooc +5%, fills the movie→game item-level gap that graph propagation alone misses.
 
-10+ games
-
-**LightGCN + cooc**
-
-L2: LightGCN dominates. L8: cooc consistently helps even with rich game history
-
-Niche / unpopular games
+Niche / unpopular games (item-side override)
 
 **SBERT-CDR + cooc**
 
-L7, L6 cooc: SBERT-CDR alone weak (Recall=0.002); cooc provides behavioral anchor that rescues it (→0.024); semantic + co-occurrence signals are complementary for niche items
+L7, L6 cooc: SBERT-CDR alone weak (Recall=0.002); cooc provides behavioral anchor that rescues it (→0.024); semantic + co-occurrence signals are complementary for niche items.
 
 ---
 

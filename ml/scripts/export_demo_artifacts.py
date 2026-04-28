@@ -27,6 +27,9 @@ from ml.scripts.benchmarks.benchmark_common import (
 from ml.models.lightgcn import LightGCN
 from ml.models.emcdr import EMCDRWrapper
 from ml.models.ptupcdr import PTUPCDRWrapper
+from ml.models.cmf import CMF
+from ml.models.matrix_factorization_bpr import MatrixFactorizationBPR
+from ml.models.ncf import NCF
 from ml.models.sbert_model import SBERTModel
 from ml.scripts.benchmarks.cooc_rerank import build_movie_game_cooc
 from ml.evaluation.metrics import compute_all_metrics, aggregate_metrics
@@ -136,6 +139,43 @@ def export_lightgcn(data_sd) -> None:
     save_npy("lightgcn_item", model.get_item_embeddings())
 
 
+def export_mf_bpr(data_sd) -> None:
+    """Train MF-BPR on game interactions and export embeddings."""
+    t0 = time.time()
+    model = MatrixFactorizationBPR(data_sd.num_users, data_sd.num_items, embedding_dim=96)
+    model.fit(data_sd.target_train, data_sd.user_to_idx, data_sd.item_to_idx,
+              epochs=100, lr=0.01, reg_lambda=0.01, batch_size=4096,
+              positive_threshold=POSITIVE_THRESHOLD)
+    logger.info("MF-BPR trained in %.1fs", time.time() - t0)
+    save_npy("mf_bpr_user", model.get_user_embeddings())
+    save_npy("mf_bpr_item", model.get_item_embeddings())
+
+
+def export_neumf(data_sd) -> None:
+    """Train NeuMF on game interactions and export embeddings."""
+    t0 = time.time()
+    model = NCF(data_sd.num_users, data_sd.num_items, embedding_dim=64, device="cpu")
+    model.fit(data_sd.target_train, data_sd.user_to_idx, data_sd.item_to_idx,
+              epochs=30, lr=0.001, reg_lambda=0.001, batch_size=4096,
+              positive_threshold=POSITIVE_THRESHOLD)
+    logger.info("NeuMF trained in %.1fs", time.time() - t0)
+    save_npy("neumf_user", model.get_user_embeddings())
+    save_npy("neumf_item", model.get_item_embeddings())
+
+
+def export_cmf(data_cd) -> None:
+    """Train CMF and export embeddings."""
+    t0 = time.time()
+    model = CMF(data_cd.num_users, data_cd.num_items, embedding_dim=64, device="cpu")
+    model.fit(data_cd.cross_train, data_cd.user_to_idx, data_cd.item_to_idx,
+              epochs=100, lr=0.0005, batch_size=8192,
+              positive_threshold=POSITIVE_THRESHOLD)
+    logger.info("CMF trained in %.1fs", time.time() - t0)
+
+    save_npy("cmf_user", model.get_user_embeddings())
+    save_npy("cmf_item", model.get_item_embeddings())
+
+
 def export_emcdr(data_cd) -> None:
     """Train EMCDR and export embeddings."""
     t0 = time.time()
@@ -203,76 +243,6 @@ def export_sbert(data_cd) -> None:
     save_npy("content_sim_scores", scores)
 
 
-def export_lightgcn_movies(data_cd) -> None:
-    """Train LightGCN on movie interactions and export embeddings."""
-    from ml.models.id_utils import normalize_id
-    movie_train = data_cd.movie_train
-    movie_item_ids = set(movie_train["item_id"].map(normalize_id).unique())
-
-    # Create movie-only item mapping
-    movie_items = sorted(movie_item_ids & set(data_cd.item_to_idx.keys()))
-    movie_item_to_idx = {iid: i for i, iid in enumerate(movie_items)}
-    num_movie_items = len(movie_item_to_idx)
-
-    t0 = time.time()
-    model = LightGCN(data_cd.num_users, num_movie_items,
-                     embedding_dim=96, num_layers=3, device="cpu", dropout=0.1)
-    model.fit(movie_train, data_cd.user_to_idx, movie_item_to_idx,
-              epochs=30, lr=0.001, reg_lambda=0.001, batch_size=4096,
-              positive_threshold=POSITIVE_THRESHOLD,
-              neg_sampling="popularity", neg_popularity_alpha=0.75,
-              neg_item_indices=np.arange(num_movie_items, dtype=np.int64))
-    logger.info("LightGCN-movies trained in %.1fs (%d items)", time.time() - t0, num_movie_items)
-
-    save_npy("lightgcn_movie_user", model.get_user_embeddings())
-    save_npy("lightgcn_movie_item", model.get_item_embeddings())
-    json.dump(movie_item_to_idx, open(OUT / "movie_item_to_idx.json", "w"))
-    json.dump({str(v): k for k, v in movie_item_to_idx.items()},
-              open(OUT / "movie_idx_to_item.json", "w"))
-
-
-def export_reverse_cooc(data_sd, data_cd) -> None:
-    """Build game→movie co-occurrence (reverse direction) for movie recommendations."""
-    from ml.models.id_utils import normalize_id
-    from collections import defaultdict
-
-    movie_by_u: dict[str, set[str]] = defaultdict(set)
-    game_by_u: dict[str, set[str]] = defaultdict(set)
-
-    r_m = pd.to_numeric(data_cd.movie_train["rating"], errors="coerce")
-    r_g = pd.to_numeric(data_sd.game_train["rating"], errors="coerce")
-    mt = data_cd.movie_train[r_m >= POSITIVE_THRESHOLD]
-    gt = data_sd.game_train[r_g >= POSITIVE_THRESHOLD]
-
-    for _, row in mt.iterrows():
-        movie_by_u[normalize_id(row["user_id"])].add(normalize_id(row["item_id"]))
-    for _, row in gt.iterrows():
-        game_by_u[normalize_id(row["user_id"])].add(normalize_id(row["item_id"]))
-
-    # Reverse: game→movie associations
-    reverse_cooc: dict[str, dict[str, float]] = {}
-    n_overlap = 0
-    for u, gs in game_by_u.items():
-        ms = movie_by_u.get(u)
-        if not ms:
-            continue
-        n_overlap += 1
-        for g in gs:
-            row = reverse_cooc.setdefault(g, {})
-            for m in ms:
-                row[m] = row.get(m, 0) + 1
-
-    # Convert counts to log scores
-    for g in reverse_cooc:
-        for m in reverse_cooc[g]:
-            reverse_cooc[g][m] = float(np.log1p(reverse_cooc[g][m]))
-
-    json.dump(reverse_cooc, open(OUT / "reverse_cooc.json", "w"))
-    n_edges = sum(len(v) for v in reverse_cooc.values())
-    logger.info("Exported reverse cooc (game→movie): %d games, %d pairs, %d overlap users",
-                len(reverse_cooc), n_edges, n_overlap)
-
-
 def export_game_item_ids(data_sd, data_cd) -> None:
     """Export the set of game item external IDs (from training data, not DB)."""
     game_ids = sorted(set(data_sd.item_to_idx.keys()))  # SD space = game items only
@@ -310,11 +280,12 @@ def main() -> None:
 
     # Export model embeddings
     export_lightgcn(data_sd)
+    export_mf_bpr(data_sd)
+    export_neumf(data_sd)
+    export_cmf(data_cd)
     export_emcdr(data_cd)
     export_ptupcdr(data_cd)
     export_sbert(data_cd)
-    export_lightgcn_movies(data_cd)
-    export_reverse_cooc(data_sd, data_cd)
     export_game_item_ids(data_sd, data_cd)
     export_cooc(data_sd)
 

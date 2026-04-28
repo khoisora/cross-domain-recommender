@@ -83,7 +83,25 @@ class DemoStore:
         self.lgcn_user: np.ndarray = np.load(DEMO_DIR / "lightgcn_user.npy")
         self.lgcn_item: np.ndarray = np.load(DEMO_DIR / "lightgcn_item.npy")
 
+        self.mf_bpr_user: np.ndarray | None = None
+        self.mf_bpr_item: np.ndarray | None = None
+        if (DEMO_DIR / "mf_bpr_user.npy").exists():
+            self.mf_bpr_user = np.load(DEMO_DIR / "mf_bpr_user.npy")
+            self.mf_bpr_item = np.load(DEMO_DIR / "mf_bpr_item.npy")
+
+        self.neumf_user: np.ndarray | None = None
+        self.neumf_item: np.ndarray | None = None
+        if (DEMO_DIR / "neumf_user.npy").exists():
+            self.neumf_user = np.load(DEMO_DIR / "neumf_user.npy")
+            self.neumf_item = np.load(DEMO_DIR / "neumf_item.npy")
+
         # Cross-domain (unified item space)
+        self.cmf_user: np.ndarray | None = None
+        self.cmf_item: np.ndarray | None = None
+        if (DEMO_DIR / "cmf_user.npy").exists():
+            self.cmf_user = np.load(DEMO_DIR / "cmf_user.npy")
+            self.cmf_item = np.load(DEMO_DIR / "cmf_item.npy")
+
         self.emcdr_user: np.ndarray | None = None
         self.emcdr_item: np.ndarray | None = None
         if (DEMO_DIR / "emcdr_user.npy").exists():
@@ -101,25 +119,8 @@ class DemoStore:
         self.content_sim_indices: np.ndarray = np.load(DEMO_DIR / "content_sim_indices.npy")
         self.content_sim_scores: np.ndarray = np.load(DEMO_DIR / "content_sim_scores.npy")
 
-        # LightGCN movie-domain (single-domain collaborative on movies)
-        self.lgcn_movie_user: np.ndarray | None = None
-        self.lgcn_movie_item: np.ndarray | None = None
-        self.movie_item_to_idx: dict[str, int] = {}
-        self.movie_idx_to_item: dict[int, str] = {}
-        if (DEMO_DIR / "lightgcn_movie_user.npy").exists():
-            self.lgcn_movie_user = np.load(DEMO_DIR / "lightgcn_movie_user.npy")
-            self.lgcn_movie_item = np.load(DEMO_DIR / "lightgcn_movie_item.npy")
-            self.movie_item_to_idx = json.loads((DEMO_DIR / "movie_item_to_idx.json").read_text())
-            self.movie_idx_to_item = {int(k): v for k, v in json.loads((DEMO_DIR / "movie_idx_to_item.json").read_text()).items()}
-            logger.info("Loaded LightGCN-movies: user=%s, item=%s",
-                        self.lgcn_movie_user.shape, self.lgcn_movie_item.shape)
-
-        # Co-occurrence matrices
+        # Co-occurrence (movie→game direction only)
         self.cooc: dict[str, dict[str, float]] = json.loads((DEMO_DIR / "cooc.json").read_text())
-        self.reverse_cooc: dict[str, dict[str, float]] = {}
-        if (DEMO_DIR / "reverse_cooc.json").exists():
-            self.reverse_cooc = json.loads((DEMO_DIR / "reverse_cooc.json").read_text())
-            logger.info("Loaded reverse cooc (game→movie): %d games", len(self.reverse_cooc))
 
         # --- Train ratings ---
         raw_ratings: list[dict] = json.loads((DEMO_DIR / "train_ratings.json").read_text())
@@ -153,14 +154,6 @@ class DemoStore:
 
         # Lookup by DB idx (for backward compat with frontend)
         self.items_by_db_idx: dict[int, dict] = {c["idx"]: c for c in self.items_list if "idx" in c}
-
-        # Movie items by movie-domain model idx
-        self.movie_items_by_idx: dict[int, dict] = {}
-        for c in self.items_list:
-            ext_id = c.get("external_id", "")
-            mi = self.movie_item_to_idx.get(ext_id)
-            if mi is not None:
-                self.movie_items_by_idx[mi] = c
 
         self.loaded = True
         logger.info(
@@ -207,22 +200,6 @@ class DemoStore:
     def search_items(self, query: str, limit: int = 20) -> list[dict]:
         q = query.lower()
         return [it for it in self.items_list if q in it.get("title", "").lower()][:limit]
-
-    def get_user_game_ids(self, user_ext_id: str, threshold: float = 4.0) -> list[str]:
-        """Return list of game item IDs the user liked (for reverse cooc)."""
-        return [r["item_id"] for r in self.user_ratings.get(user_ext_id, [])
-                if r.get("domain") == "game" and r["rating"] >= threshold]
-
-    def compute_reverse_cooc_scores(self, user_ext_id: str) -> dict[str, float]:
-        """Compute game→movie cooc: recommend movies based on game history."""
-        game_ids = self.get_user_game_ids(user_ext_id)
-        if not game_ids:
-            return {}
-        movie_scores: dict[str, float] = {}
-        for gid in game_ids:
-            for mid, score in self.reverse_cooc.get(gid, {}).items():
-                movie_scores[mid] = movie_scores.get(mid, 0) + score
-        return movie_scores
 
     def compute_cooc_scores(self, user_ext_id: str) -> dict[str, float]:
         """Compute cooc bonus for game items based on user's movie history.

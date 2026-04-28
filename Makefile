@@ -2,7 +2,33 @@ IMAGE_NAME := crossrec
 CONTAINER_NAME := crossrec-app
 PORT := 8000
 
-.PHONY: build run stop logs clean dev export
+.PHONY: install export dev all \
+        build run stop logs restart clean
+
+# ============================================================
+# Local (non-Docker) workflow
+# ============================================================
+
+# Create venv and install Python dependencies
+install:
+	python -m venv .venv
+	.venv/bin/pip install --upgrade pip
+	.venv/bin/pip install -r requirements.txt
+
+# Export model artifacts (run before first build or first dev run)
+export:
+	PYTHONPATH=. python ml/scripts/export_demo_artifacts.py
+
+# Run locally without Docker
+dev:
+	PYTHONPATH=. uvicorn backend.demo.main:app --host 0.0.0.0 --port $(PORT) --reload
+
+# Full local setup: install deps, export artifacts, then run dev server
+all: install export dev
+
+# ============================================================
+# Docker workflow
+# ============================================================
 
 # Build Docker image
 build:
@@ -31,11 +57,3 @@ restart: stop build run
 # Remove image and container
 clean: stop
 	docker rmi $(IMAGE_NAME) 2>/dev/null || true
-
-# Run locally without Docker
-dev:
-	PYTHONPATH=. uvicorn backend.demo.main:app --host 0.0.0.0 --port $(PORT) --reload
-
-# Export model artifacts (run before first build)
-export:
-	PYTHONPATH=. python ml/scripts/export_demo_artifacts.py
